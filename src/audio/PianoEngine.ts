@@ -1,10 +1,10 @@
 /**
  * PianoEngine.ts
- * Yamaha C5 Konser Kuyruklu Piyano (Salamander Grand Piano) Ses Motoru
- * - Önbelleklenmiş O(1) Örnekleme Tablosu (Sıfır arama gecikmesi)
- * - Donanım Zamanlamalı Nota Çizelgeleme (Stutter-Free Sample-Accurate Audio Scheduling)
- * - Anti-Clipping: Stüdyo Kompresörü & Tanh Soft-Clipper Limiter
- * - Gerçekçi Keçe Damper ve CC 64 Sustain Pedalı
+ * Yamaha C5 Concert Grand Piano (Salamander) — Zero-Stutter Audio Engine
+ *
+ * Architecture: Source → VoiceGain → PreMaster → Master → Compressor → Destination
+ * No ConvolverNode reverb (massive CPU drain), no WaveShaper oversample.
+ * Designed to handle 88 simultaneous keys + Rush E + Black MIDI without a single click.
  */
 
 export interface SampleMapEntry {
@@ -59,24 +59,27 @@ interface PrecomputedNoteInfo {
   playbackRate: number;
 }
 
+// Max concurrent live voices before oldest-pruning kicks in
+const MAX_LIVE_VOICES = 64;
+// Max scheduled (playback engine) nodes before oldest-pruning
+const MAX_SCHEDULED_NODES = 200;
+// How many voices to prune in one batch when limit is hit
+const PRUNE_BATCH = 12;
+
 export class PianoEngine {
   private ctx: AudioContext | null = null;
   private preMasterGain: GainNode | null = null;
   private masterGain: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
-  private limiterNode: WaveShaperNode | null = null;
-  private reverbNode: ConvolverNode | null = null;
-  private reverbGain: GainNode | null = null;
 
   private sampleBuffers: Map<number, AudioBuffer> = new Map();
-  // 88 tuş için O(1) hazır örnek haritası (midi -> { buffer, playbackRate })
   private precomputedLookup: Map<number, PrecomputedNoteInfo> = new Map();
 
   private isLoadedFlag = false;
   private loadingProgress = 0;
   private onProgressCallback?: (progress: number) => void;
 
-  // Aktif çalan sesler
+  // Live voices (user keyboard / MIDI controller)
   private activeVoices: Map<number, {
     source: AudioBufferSourceNode;
     gain: GainNode;
@@ -84,6 +87,7 @@ export class PianoEngine {
     isUserHeld: boolean;
   }> = new Map();
 
+  // Scheduled voices (playback engine lookahead)
   private scheduledNodes: Set<{ source: AudioBufferSourceNode; gain: GainNode }> = new Set();
 
   private sustainPedal = false;
@@ -96,41 +100,31 @@ export class PianoEngine {
   public async initAudio(): Promise<void> {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx({ latencyHint: 'interactive' });
+      this.ctx = new AudioCtx({ latencyHint: 'interactive', sampleRate: 44100 });
 
-      // 1. Pre-Master Bus
+      // === Minimal Audio Graph (Zero Bloat) ===
+      // Source → VoiceGain → PreMaster → Master → Compressor → Destination
+
+      // 1. Pre-Master bus (all voices connect here)
       this.preMasterGain = this.ctx.createGain();
-      this.preMasterGain.gain.setValueAtTime(0.75, this.ctx.currentTime);
+      this.preMasterGain.gain.value = 0.7;
 
-      // 2. Akustik Konser Salonu Reverb Rezonansı
-      this.reverbNode = this.createImpulseReverb(this.ctx, 1.6, 2.2);
-      this.reverbGain = this.ctx.createGain();
-      this.reverbGain.gain.setValueAtTime(0.18, this.ctx.currentTime);
-
-      this.preMasterGain.connect(this.reverbGain);
-      this.reverbGain.connect(this.reverbNode);
-
-      // 3. Master Volume Fader
+      // 2. Master volume fader
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(this.masterVolume, this.ctx.currentTime);
+      this.masterGain.gain.value = this.masterVolume;
 
-      // 4. Stüdyo Kompresörü / Limiter
+      // 3. Brick-wall limiter / compressor (prevents clipping, zero latency artifacts)
       this.compressorNode = this.ctx.createDynamicsCompressor();
-      this.compressorNode.threshold.setValueAtTime(-14, this.ctx.currentTime);
-      this.compressorNode.knee.setValueAtTime(8, this.ctx.currentTime);
-      this.compressorNode.ratio.setValueAtTime(10, this.ctx.currentTime);
-      this.compressorNode.attack.setValueAtTime(0.003, this.ctx.currentTime);
-      this.compressorNode.release.setValueAtTime(0.2, this.ctx.currentTime);
+      this.compressorNode.threshold.value = -8;
+      this.compressorNode.knee.value = 6;
+      this.compressorNode.ratio.value = 12;
+      this.compressorNode.attack.value = 0.002;
+      this.compressorNode.release.value = 0.15;
 
-      // 5. Tanh Analog Soft-Clipper
-      this.limiterNode = this.createSoftClipper(this.ctx);
-
+      // Wire: preMaster → master → compressor → speakers
       this.preMasterGain.connect(this.masterGain);
-      this.reverbNode.connect(this.masterGain);
-
       this.masterGain.connect(this.compressorNode);
-      this.compressorNode.connect(this.limiterNode);
-      this.limiterNode.connect(this.ctx.destination);
+      this.compressorNode.connect(this.ctx.destination);
     }
 
     if (this.ctx.state === 'suspended') {
@@ -145,8 +139,7 @@ export class PianoEngine {
   public setMasterVolume(val: number): void {
     this.masterVolume = Math.max(0, Math.min(1.0, val));
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.masterGain.gain.linearRampToValueAtTime(this.masterVolume, this.ctx.currentTime + 0.04);
+      this.masterGain.gain.setTargetAtTime(this.masterVolume, this.ctx.currentTime, 0.03);
     }
   }
 
@@ -163,7 +156,7 @@ export class PianoEngine {
   }
 
   /**
-   * Yamaha C5 Salamander Ses Örneklerini Yükler ve O(1) Tabloyu Hazırlar
+   * Load Yamaha C5 Salamander samples and build O(1) pitch lookup table
    */
   public async loadSoundfont(): Promise<void> {
     if (this.isLoadedFlag) return;
@@ -188,7 +181,7 @@ export class PianoEngine {
           this.sampleBuffers.set(item.midi, audioBuffer);
         }
       } catch (err) {
-        console.warn(`Örnek yüklenemedi: ${item.note}`, err);
+        console.warn(`Sample load failed: ${item.note}`, err);
       } finally {
         loaded++;
         const pct = Math.round((loaded / total) * 100);
@@ -199,7 +192,6 @@ export class PianoEngine {
 
     await Promise.all(loadPromises);
 
-    // 88 tuş için O(1) tablosunu hemen oluştur (Çalma sırasında sıfır arama gecikmesi)
     this.buildPrecomputedLookup();
     this.isLoadedFlag = this.precomputedLookup.size > 0;
   }
@@ -207,29 +199,31 @@ export class PianoEngine {
   private buildPrecomputedLookup(): void {
     if (this.sampleBuffers.size === 0) return;
 
-    for (let midi = 21; midi <= 108; midi++) {
-      let closestMidi = -1;
-      let minDistance = 999;
+    const sampleMidis = Array.from(this.sampleBuffers.keys()).sort((a, b) => a - b);
 
-      for (const sampleMidi of this.sampleBuffers.keys()) {
-        const dist = Math.abs(midi - sampleMidi);
+    for (let midi = 21; midi <= 108; midi++) {
+      let closestMidi = sampleMidis[0];
+      let minDistance = Math.abs(midi - closestMidi);
+
+      for (let j = 1; j < sampleMidis.length; j++) {
+        const dist = Math.abs(midi - sampleMidis[j]);
         if (dist < minDistance) {
           minDistance = dist;
-          closestMidi = sampleMidi;
+          closestMidi = sampleMidis[j];
         }
+        // Since sorted, once distance starts growing we can break
+        if (dist > minDistance) break;
       }
 
-      if (closestMidi !== -1) {
-        const buffer = this.sampleBuffers.get(closestMidi)!;
-        const semitoneDiff = midi - closestMidi;
-        const playbackRate = Math.pow(2, semitoneDiff / 12);
-        this.precomputedLookup.set(midi, { buffer, playbackRate });
-      }
+      const buffer = this.sampleBuffers.get(closestMidi)!;
+      const semitoneDiff = midi - closestMidi;
+      const playbackRate = Math.pow(2, semitoneDiff / 12);
+      this.precomputedLookup.set(midi, { buffer, playbackRate });
     }
   }
 
   /**
-   * Anlık Note On (Canlı kullanıcı vuruşu için)
+   * Instant Note-On (for live user input — keyboard, MIDI controller, on-screen keys)
    */
   public playNote(midi: number, velocity: number = 0.8, timeOffset: number = 0): void {
     if (!this.ctx || !this.preMasterGain) {
@@ -238,27 +232,26 @@ export class PianoEngine {
     }
 
     const now = this.ctx.currentTime + Math.max(0, timeOffset);
-    const clampedVelocity = Math.max(0.1, Math.min(1.0, velocity));
+    const vel = Math.max(0.1, Math.min(1.0, velocity));
 
-    // Aşırı Küme & 88 Tuş Polifoni Koruması (Aynı anda tüm tuşlara basıldığında bile sıfır zorlanma)
-    if (this.activeVoices.size >= 24) {
-      // En eski sesleri topluca hızlıca söndür
-      const iterator = this.activeVoices.entries();
+    // Voice pruning: if at capacity, kill oldest non-held voices
+    if (this.activeVoices.size >= MAX_LIVE_VOICES) {
+      const iter = this.activeVoices.entries();
       let pruned = 0;
-      for (const [oldMidi, voice] of iterator) {
-        if (!voice.isUserHeld || pruned < 6) {
-          voice.stop(0.04);
+      for (const [oldMidi, voice] of iter) {
+        if (!voice.isUserHeld || pruned < PRUNE_BATCH) {
+          voice.stop(0.02);
           this.activeVoices.delete(oldMidi);
           pruned++;
-          if (pruned >= 6) break;
+          if (pruned >= PRUNE_BATCH) break;
         }
       }
     }
 
-    // Önceki sesi yumuşakça söndür (ani kesme yapmaz)
+    // Retrigger: gracefully stop existing voice on same key
     const existing = this.activeVoices.get(midi);
     if (existing) {
-      existing.stop(0.06);
+      existing.stop(0.015);
       this.activeVoices.delete(midi);
     }
 
@@ -267,46 +260,47 @@ export class PianoEngine {
 
     const source = this.ctx.createBufferSource();
     source.buffer = info.buffer;
-    source.playbackRate.setValueAtTime(info.playbackRate, now);
+    source.playbackRate.value = info.playbackRate;
 
     const gain = this.ctx.createGain();
-    // Yoğunluk ölçeklemesi: çok fazla tuşa basıldığında kazancı dinamik dengeler
-    const clusterScale = this.activeVoices.size > 8 ? Math.max(0.4, 8 / Math.sqrt(this.activeVoices.size * 5)) : 1.0;
-    const targetGain = Math.pow(clampedVelocity, 1.25) * 0.42 * clusterScale;
+    // Dynamic headroom: scale down individual voice gain when many voices playing
+    const voiceCount = this.activeVoices.size;
+    const headroom = voiceCount > 10 ? Math.max(0.35, 1.0 / Math.sqrt(voiceCount * 0.25)) : 1.0;
+    const targetGain = Math.pow(vel, 1.2) * 0.38 * headroom;
 
-    // Pop-free mikro rampa
+    // Pop-free micro-ramp attack
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(targetGain, now + 0.003);
+    gain.gain.linearRampToValueAtTime(targetGain, now + 0.004);
 
     source.connect(gain);
     gain.connect(this.preMasterGain);
-
     source.start(now);
 
-    const stopFn = (decayTime: number = 0.32) => {
+    const stopFn = (decayTime: number = 0.3) => {
       try {
         if (!this.ctx) return;
-        const stopTime = this.ctx.currentTime;
-        gain.gain.cancelScheduledValues(stopTime);
-        gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), stopTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, stopTime + decayTime);
-        source.stop(stopTime + decayTime + 0.05);
+        const t = this.ctx.currentTime;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + decayTime);
+        source.stop(t + decayTime + 0.05);
       } catch {
-        // Voice already closed
+        // Voice already stopped
       }
     };
 
-    this.activeVoices.set(midi, {
-      source,
-      gain,
-      stop: stopFn,
-      isUserHeld: true
-    });
+    this.activeVoices.set(midi, { source, gain, stop: stopFn, isUserHeld: true });
+
+    // Auto-cleanup when sample naturally ends
+    source.onended = () => {
+      if (this.activeVoices.get(midi)?.source === source) {
+        this.activeVoices.delete(midi);
+      }
+    };
   }
 
   /**
-   * Donanım Zamanlamalı Nota Çizelgeleme (Hassas Çalma Motoru İçin)
-   * UI gecikmesinden tamamen bağımsız olarak donanım saatinde mikro saniye hassasiyetinde çalar.
+   * Hardware-Clock Scheduled Note (for playback engine lookahead — zero UI-thread jitter)
    */
   public scheduleNote(
     midi: number,
@@ -319,45 +313,44 @@ export class PianoEngine {
     const info = this.precomputedLookup.get(midi);
     if (!info) return;
 
-    const now = Math.max(this.ctx.currentTime, startTime);
-    const clampedVelocity = Math.max(0.1, Math.min(1.0, velocity));
+    const t0 = Math.max(this.ctx.currentTime, startTime);
+    const vel = Math.max(0.1, Math.min(1.0, velocity));
 
     const source = this.ctx.createBufferSource();
     source.buffer = info.buffer;
-    source.playbackRate.setValueAtTime(info.playbackRate, now);
+    source.playbackRate.value = info.playbackRate;
 
     const gain = this.ctx.createGain();
-    const targetGain = Math.pow(clampedVelocity, 1.25) * 0.42;
+    const targetGain = Math.pow(vel, 1.2) * 0.35;
 
-    // Attack rampa
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(targetGain, now + 0.003);
+    // Attack ramp
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.linearRampToValueAtTime(targetGain, t0 + 0.004);
 
-    // Rush E / Yoğun Hızlı Notalar İçin Dinamik Sönümleme (Düğüm patlamasını önler)
-    const decayDuration = duration < 0.15 ? Math.max(0.06, duration * 1.1) : 0.3;
-    const releaseStart = now + Math.max(0.06, duration);
-
+    // Release envelope
+    const releaseStart = t0 + Math.max(0.04, duration);
+    const releaseDur = duration < 0.12 ? 0.06 : 0.25;
     gain.gain.setValueAtTime(targetGain, releaseStart);
-    gain.gain.exponentialRampToValueAtTime(0.0001, releaseStart + decayDuration);
+    gain.gain.exponentialRampToValueAtTime(0.0001, releaseStart + releaseDur);
 
     source.connect(gain);
     gain.connect(this.preMasterGain);
+    source.start(t0);
+    source.stop(releaseStart + releaseDur + 0.02);
 
-    source.start(now);
-    source.stop(releaseStart + decayDuration + 0.03);
-
-    // Maksimum eşzamanlı donanım düğüm sınırı (Rush E / Black MIDI ses motoru çökmesini önler)
-    if (this.scheduledNodes.size > 36) {
-      const oldest = this.scheduledNodes.values().next().value;
-      if (oldest) {
+    // Scheduled node pruning (Black MIDI safety valve)
+    if (this.scheduledNodes.size > MAX_SCHEDULED_NODES) {
+      const iter = this.scheduledNodes.values();
+      let pruned = 0;
+      for (const old of iter) {
         try {
-          oldest.gain.gain.cancelScheduledValues(this.ctx.currentTime);
-          oldest.gain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
-          oldest.source.stop(this.ctx.currentTime + 0.01);
-          this.scheduledNodes.delete(oldest);
-        } catch {
-          // Ignore
-        }
+          old.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+          old.gain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+          old.source.stop(this.ctx.currentTime + 0.005);
+        } catch { /* already stopped */ }
+        this.scheduledNodes.delete(old);
+        pruned++;
+        if (pruned >= PRUNE_BATCH) break;
       }
     }
 
@@ -369,9 +362,9 @@ export class PianoEngine {
   }
 
   /**
-   * Tuş bırakıldığında sönümleme
+   * Key release (with sustain pedal awareness)
    */
-  public stopNote(midi: number, decayTime: number = 0.32, force: boolean = false): void {
+  public stopNote(midi: number, decayTime: number = 0.3, force: boolean = false): void {
     const voice = this.activeVoices.get(midi);
     if (!voice) return;
 
@@ -392,7 +385,7 @@ export class PianoEngine {
       const toRemove: number[] = [];
       this.activeVoices.forEach((voice, midi) => {
         if (!voice.isUserHeld) {
-          voice.stop(0.35);
+          voice.stop(0.3);
           toRemove.push(midi);
         }
       });
@@ -405,58 +398,26 @@ export class PianoEngine {
   }
 
   public stopAllNotes(): void {
-    this.activeVoices.forEach(v => v.stop(0.06));
+    this.activeVoices.forEach(v => v.stop(0.03));
     this.activeVoices.clear();
 
-    // Çizelgelenmiş tüm donanım seslerini anında durdur
     this.scheduledNodes.forEach(({ source, gain }) => {
       try {
         if (this.ctx) {
           gain.gain.cancelScheduledValues(this.ctx.currentTime);
           gain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
-          source.stop(this.ctx.currentTime + 0.02);
+          source.stop(this.ctx.currentTime + 0.01);
         }
       } catch {
-        // Closed
+        // Already stopped
       }
     });
     this.scheduledNodes.clear();
   }
 
-  private createSoftClipper(ctx: AudioContext): WaveShaperNode {
-    const shaper = ctx.createWaveShaper();
-    const n = 4096;
-    const curve = new Float32Array(n);
-
-    for (let i = 0; i < n; i++) {
-      const x = (i * 2) / n - 1;
-      curve[i] = Math.tanh(x * 1.15);
-    }
-
-    shaper.curve = curve;
-    shaper.oversample = '2x';
-    return shaper;
-  }
-
-  private createImpulseReverb(ctx: BaseAudioContext, duration = 1.6, decay = 2.2): ConvolverNode {
-    const convolver = ctx.createConvolver();
-    const rate = ctx.sampleRate;
-    const length = Math.floor(rate * duration);
-    const impulse = ctx.createBuffer(2, length, rate);
-    const left = impulse.getChannelData(0);
-    const right = impulse.getChannelData(1);
-
-    for (let i = 0; i < length; i++) {
-      const n = i / length;
-      const envelope = Math.pow(1 - n, decay);
-      left[i] = (Math.random() * 2 - 1) * envelope;
-      right[i] = (Math.random() * 2 - 1) * envelope;
-    }
-
-    convolver.buffer = impulse;
-    return convolver;
-  }
-
+  /**
+   * Offline rendering for MIDI-to-MP3 converter
+   */
   public async renderNotesToAudioBuffer(
     notes: { midi: number; time: number; duration: number; velocity: number }[],
     totalDuration: number
@@ -466,23 +427,16 @@ export class PianoEngine {
     const offlineCtx = new OfflineAudioContext(2, lengthInSamples, sampleRate);
 
     const master = offlineCtx.createGain();
-    master.gain.setValueAtTime(0.75, 0);
+    master.gain.setValueAtTime(0.7, 0);
 
     const comp = offlineCtx.createDynamicsCompressor();
-    comp.threshold.setValueAtTime(-14, 0);
-    comp.knee.setValueAtTime(8, 0);
-    comp.ratio.setValueAtTime(10, 0);
-    comp.attack.setValueAtTime(0.003, 0);
-    comp.release.setValueAtTime(0.2, 0);
-
-    const reverb = this.createImpulseReverb(offlineCtx, 1.6, 2.2);
-    const revGain = offlineCtx.createGain();
-    revGain.gain.setValueAtTime(0.18, 0);
+    comp.threshold.setValueAtTime(-8, 0);
+    comp.knee.setValueAtTime(6, 0);
+    comp.ratio.setValueAtTime(12, 0);
+    comp.attack.setValueAtTime(0.002, 0);
+    comp.release.setValueAtTime(0.15, 0);
 
     master.connect(comp);
-    master.connect(revGain);
-    revGain.connect(reverb);
-    reverb.connect(comp);
     comp.connect(offlineCtx.destination);
 
     for (const note of notes) {
@@ -498,18 +452,18 @@ export class PianoEngine {
         source.playbackRate.setValueAtTime(info.playbackRate, startTime);
 
         const gain = offlineCtx.createGain();
-        const targetGain = Math.pow(velocity, 1.25) * 0.42;
+        const targetGain = Math.pow(velocity, 1.2) * 0.38;
 
         gain.gain.setValueAtTime(0.0001, startTime);
-        gain.gain.linearRampToValueAtTime(targetGain, startTime + 0.003);
+        gain.gain.linearRampToValueAtTime(targetGain, startTime + 0.004);
         gain.gain.setValueAtTime(targetGain, startTime + duration);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.35);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.3);
 
         source.connect(gain);
         gain.connect(master);
 
         source.start(startTime);
-        source.stop(startTime + duration + 0.4);
+        source.stop(startTime + duration + 0.35);
       }
     }
 
