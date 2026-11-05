@@ -131,17 +131,7 @@ src/
 
 ---
 
-## 📦 Deployment to GitHub Pages
 
-To host on your GitHub account with GitHub Pages:
-
-```bash
-# Push to your GitHub repo:
-git remote add origin https://github.com/gigglemorgan/open-synthesia.git
-git push -u origin main
-```
-
-In your repository on GitHub, go to **Settings > Pages** and select `main` branch (root or docs) or deploy via GitHub Actions.
 
 ---
 
