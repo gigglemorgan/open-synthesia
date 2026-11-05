@@ -49,7 +49,34 @@
 
 ---
 
-## 🚀 Quickstart
+## 🖥️ Desktop App (Linux & Windows)
+
+OpenSynthesia runs seamlessly both in modern web browsers and as a dedicated native desktop application with hardware acceleration and ultra-low audio latency.
+
+### Desktop Optimizations for Zero Audio Stutter
+- **Direct Real-Time Priority Audio**: Electron runs with `--audio-buffer-size=512` and `--enable-exclusive-audio` for sub-12ms response time.
+- **Background Throttling Disabled**: Audio never skips, clicks, or pauses when the window loses focus or is minimized (`backgroundThrottling: false`, `--disable-renderer-backgrounding`).
+- **Hardware Web MIDI Access**: USB & Bluetooth MIDI keyboards and sustain pedals are recognized out of the box with auto-granted permissions.
+
+### Desktop Commands
+
+```bash
+# Launch Desktop App in development mode (with hot reloading)
+npm run electron:dev
+
+# Build Linux packages (.AppImage & .deb)
+npm run build:linux
+
+# Build Windows packages (Installer & Portable .exe)
+npm run build:win
+
+# Fast unpack without installer packaging (stored in release/linux-unpacked/)
+npm run pack
+```
+
+---
+
+## 🚀 Web Quickstart
 
 ```bash
 # 1. Clone repository
@@ -86,7 +113,8 @@ OpenSynthesia; Synthesia'nın en sevilen özelliklerini modern, ultra hafif ve s
 
 ### 🌟 Öne Çıkan Özellikler
 
-- ⚡ **Sıfır Kurulum, Ultra Hızlı:** Doğrudan tarayıcıda çalışır.
+- 🖥️ **Linux & Windows Masaüstü Desteği:** `AppImage`, `.deb`, `.exe` ve taşınabilir (portable) kurulum paketleri.
+- ⚡ **Sıfır Ses Gecikmesi & Kasmayan Ses Motoru:** 512-buffer düşük gecikmeli Web Audio/Chromium motoru, arka plana atıldığında dahi asla takılmayan ses (`backgroundThrottling: false`).
 - 🎹 **60+ FPS İkili Arama Şelale Motoru:** Rush E ve 50.000+ notalı Black MIDI şarkılarda bile sıfır donma.
 - 🎓 **Etüd & Eğitim:** Bekleme modu (tuşa basana kadar bekler), el ayrımı (Sol / Sağ / İki El), A-B ölçü döngüsü.
 - 🎼 **Gerçek Yamaha C5 Grand Piano Sesleri:** Gerçek kuyruklu piyano çoklu örnekleri, keçe damper ve CC 64 sustain pedalı.
