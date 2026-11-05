@@ -2,144 +2,150 @@
 
 # 🎹 OpenSynthesia (Open Piano Studio)
 
-**Açık Kaynak, Hızlı, Akıcı Piyano Eğitimi, Şelale Görselleştirici & Format Dönüştürücü**
+**Open-source, ultra-fast, featherweight piano visualizer, study & practice studio, and audio converter.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?logo=react)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-6.2-646cff?logo=vite)](https://vitejs.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38bdf8?logo=tailwindcss)](https://tailwindcss.com/)
-[![Web MIDI API](https://img.shields.io/badge/Web_MIDI_API-Supported-emerald)](#hardware-support)
-[![Audio](https://img.shields.io/badge/Sound-Acoustic_Grand_Piano_HD-purple)](#audio-engine)
+[![Web MIDI API](https://img.shields.io/badge/Web_MIDI-Plug_%26_Play-emerald)](#hardware-support)
+[![Sound](https://img.shields.io/badge/Audio-Yamaha_C5_Grand_Piano_HD-purple)](#audio-engine)
 
-[Özellikler](#-özellikler) • [Hızlı Başlangıç](#-hızlı-başlangıç) • [Etüd ve Eğitim](#-etüd-ve-eğitim-modu) • [Dönüştürücüler](#-dönüştürücü-ve-dinleme-özelliği) • [GitHub'da Paylaşım](#-github-üzerinde-yayınlama)
+[English](#-english) • [Türkçe](#-türkçe) • [Quickstart](#-quickstart) • [Features](#-features) • [License](#-license)
 
 ---
 
 </div>
 
-## 🌟 Neden OpenSynthesia?
+## 🌐 English
 
-OpenSynthesia; Synthesia'nın en sevilen özelliklerini modern web teknolojileriyle birleştiren, tamamen tarayıcı üzerinde çalışan, hiçbir sunucu veya eklenti kurulumu gerektirmeyen, **açık kaynaklı ve ücretsiz** bir piyano stüdyosudur.
+**OpenSynthesia** is an open-source, zero-dependency, ultra-lightweight web piano studio designed for practicing, visualizing falling notes (Synthesia style), connecting hardware MIDI keyboards with CC 64 sustain pedals, and converting MIDI to authentic MP3 audio and vice-versa.
 
-- ⚡ **Sıfır Kurulum, Ultra Hızlı:** Doğrudan tarayıcıda çalışır (Chrome, Edge, Brave, Opera vb.).
-- 🎹 **60+ FPS Akıcı Şelale (Waterfall):** HTML5 Canvas tabanlı yüksek performanslı nota akışı.
-- 🎓 **Etüd & Eğitim Odaklı:** Tuşa basana kadar bekleyen bekleme modu, el izolasyonu ve A-B döngüsü.
-- 🎛️ **Donanım MIDI & Sustain Pedalı:** USB/Bluetooth MIDI klavyeniz ve CC 64 sustain pedalıyla tak-çalıştır.
-- 🎼 **Gerçekçi Akustik Piyano Tınısı:** Konser kuyruklu piyano çoklu örnekleri ve rezonans simülasyonu.
-- 🔄 **İki Yönlü Dönüştürücü:** `.mid` ➔ `.mp3` (akustik render) ve `.mp3` ➔ `.mid` (yapay zeka nota tespiti).
+### 🌟 Key Highlights
 
----
-
-## ✨ Özellikler
-
-### 1. 🎼 Synthesia Şelale Görselleştirici & 88 Tuşlu Klavye
-- **Sol El ve Sağ El Renk Kodlaması:** Sol el için elektrik mavisi (`#3b82f6`), sağ el için zümrüt yeşili (`#10b981`).
-- **Gerçekçi 88 Tuşlu Piyano:** Beyaz ve siyah tuşlar, basış derinliği, nota isimleri (C3, C4 vb.).
-- **Vuruş Parçacık Efektleri:** Tuşa basıldığında yukarı doğru parlayan dinamik ışık patlamaları.
-- **Ayarlanabilir Şelale Hızı:** 1.5 saniyeden 4.5 saniyeye kadar görünüm penceresi.
-
-### 2. 🎓 Gelişmiş Etüd ve Eğitim Modu (Practice Mode)
-- **⏳ Bekleme Modu (Wait for Note):** Nota vuruş çizgisine geldiğinde şarkı durur; doğru tuşa basana kadar bekler!
-- **🧤 El Seçimi:** 
-  - *Sadece Sağ El:* Sol eli bilgisayar çalar, siz sağ eli çalışırsınız.
-  - *Sadece Sol El:* Sağ eli bilgisayar çalar, siz sol eli çalışırsınız.
-  - *İki El:* Her iki elin notalarını da sizin çalmanız beklenir.
-- **🔁 A-B Loop (Bölüm Tekrarı):** [A] başlangıç ve [B] bitiş noktaları belirleyerek zorlandığınız ölçüyü arka arkaya çalışın.
-- **⏱️ Hız Kontrolü:** 0.5x, 0.75x, 1.0x, 1.25x, 1.5x hız seçenekleri.
-- **🏆 Seri ve Doğruluk Skoru:** Hata yapmadan çalınan nota serisi (Streak) ve konfeti kutlamaları.
-
-### 3. 🎛️ MIDI Klavye ve CC 64 Sustain Pedalı Desteği
-- Web MIDI API ile USB veya Bluetooth üzerinden bağlanan tüm dijital piyanoları otomatik tanır.
-- **Gerçek Sustain Pedalı (CC 64):** Pedala bastığınızda serbest kalan notalar tınlamaya devam eder, pedalı kaldırdığınızda doğal olarak sönümlenir.
-- **Bilgisayar Klavyesi Desteği:** MIDI klavyesi olmayanlar için QWERTY tuşları + Boşluk (Spacebar) sustain pedalı olarak çalışır.
-
-### 4. 🔄 Format Dönüştürücü (.mid ⇄ .mp3) & Müzik Çalar
-- **MIDI ➔ MP3:** MIDI dosyasındaki notaları stüdyo kalitesinde akustik piyano motoruyla seslendirir ve `lamejs` ile doğrudan MP3 olarak kaydeder.
-- **MP3 ➔ MIDI:** Herhangi bir piyano ses kaydını (MP3, WAV, OGG) frekans spektrumunda analiz ederek notalarını çıkarır ve `.mid` dosyası üretir.
-- **🎧 Dahili Müzik Çalar:** Oluşturulan MP3'leri dinlemek için dalga formlu, hız kontrollü oynatıcı.
+- ⚡ **Zero Installation:** Runs entirely inside modern web browsers (Chrome, Edge, Brave, Opera, Safari) via Web Audio & Web MIDI APIs.
+- 🎹 **60 / 120 FPS Falling Notes Visualizer:** Powered by high-speed HTML5 Canvas with **$O(\log N)$ binary search** viewport rendering. Easily handles heavy pieces like **Rush E** and Black MIDI with tens of thousands of notes without dropping a single frame.
+- 🎓 **Smart Practice & Study Modes:**
+  - **Wait Mode:** Falling notes pause right at the hit line until you press the exact required keys on your keyboard or piano.
+  - **Hand Isolation:** Practice Left Hand, Right Hand, or Both Hands independently (with computer auto-playing the accompaniment).
+  - **A-B Loop:** Set repeat start and end markers to loop difficult measures.
+  - **Speed & Tempo Scaling:** Practice at 50%, 75%, 100%, 125%, 150% speed.
+- 🎼 **Authentic Yamaha C5 Grand Piano Audio:**
+  - Real 48kHz high-resolution acoustic multi-samples from an authentic Yamaha C5 Concert Grand Piano (Salamander Grand Piano).
+  - True damper felt releases, string resonance, and CC 64 sustain pedal simulation.
+  - **Studio Anti-Clipping Limiter & Analog Tanh Soft-Clipper:** Guarantees zero distortion or popping even when all 88 keys are pressed simultaneously.
+  - **Stutter-Free Lookahead Scheduling:** Hardware Web Audio clock lookahead scheduling for liquid-smooth note transitions without micro-stutters.
+- 🎛️ **Full Hardware MIDI & Computer Keyboard Support:**
+  - Plug-and-play USB & Bluetooth MIDI keyboards (Yamaha, Roland, Casio, Kawai, Alesis, Korg, etc.).
+  - Realistic Damper / Sustain Pedal (CC 64).
+  - Computer Keyboard Piano: 2 full octaves with letter key badges (`Q`, `W`, `E`, `2`, `3`...) displayed right on the piano keys.
+  - Quick Octave Shifting: Press `[` and `]` to shift octaves on the fly.
+- 🔄 **Bidirectional Converter Suite & Player:**
+  - **MIDI ➔ MP3:** Renders MIDI files using the authentic Yamaha C5 sound engine into pure 192kbps LAME MP3s entirely inside the browser.
+  - **Audio ➔ MIDI:** Performs spectral pitch detection on MP3 / WAV / OGG files to extract piano notes and generate standard `.mid` files.
+  - **Built-in Audio Player:** Integrated audio monitor with visual spectrum, loop, and speed controls.
+- 🌍 **Bilingual Support (English & Türkçe):** One-click language switch with persistent user preferences.
 
 ---
 
-## 🚀 Hızlı Başlangıç
-
-### Gereksinimler
-- [Node.js](https://nodejs.org/) (v18 veya üzeri)
-- npm veya yarn / pnpm
-
-### Kurulum Adımları
+## 🚀 Quickstart
 
 ```bash
-# 1. Projeyi klonlayın
+# 1. Clone repository
 git clone https://github.com/gigglemorgan/open-synthesia.git
 cd open-synthesia
 
-# 2. Bağımlılıkları yükleyin
+# 2. Install dependencies
 npm install
 
-# 3. Geliştirme sunucusunu başlatın
+# 3. Start local studio
 npm run dev
 ```
 
-Tarayıcınızda `http://localhost:3000` adresini açarak hemen kullanmaya başlayabilirsiniz!
+Open `http://localhost:3000` in your browser.
 
 ---
 
-## 🛠️ Proje Mimarisi
+## ⌨️ Controls & Shortcuts
+
+| Action | Shortcut |
+| :--- | :--- |
+| **Play / Pause** | `Space` (when not playing keyboard) |
+| **Sustain Pedal** | `Spacebar` (hold while playing keys) |
+| **Octave Down** | `[` |
+| **Octave Up** | `]` |
+| **White Keys** | `Z, X, C, V, B, N, M` (Lower Octave) / `Q, W, E, R, T, Y, U, I, O, P` (Middle & Upper) |
+| **Black Keys** | `S, D, G, H, J` (Lower Octave) / `2, 3, 5, 6, 7, 9, 0` (Upper Octave) |
+
+---
+
+## 🇹🇷 Türkçe
+
+OpenSynthesia; Synthesia'nın en sevilen özelliklerini modern, ultra hafif ve sade web teknolojileriyle birleştiren, tamamen tarayıcı üzerinde çalışan, hiçbir sunucu veya eklenti kurulumu gerektirmeyen **açık kaynaklı ve ücretsiz** bir piyano stüdyosudur.
+
+### 🌟 Öne Çıkan Özellikler
+
+- ⚡ **Sıfır Kurulum, Ultra Hızlı:** Doğrudan tarayıcıda çalışır.
+- 🎹 **60+ FPS İkili Arama Şelale Motoru:** Rush E ve 50.000+ notalı Black MIDI şarkılarda bile sıfır donma.
+- 🎓 **Etüd & Eğitim:** Bekleme modu (tuşa basana kadar bekler), el ayrımı (Sol / Sağ / İki El), A-B ölçü döngüsü.
+- 🎼 **Gerçek Yamaha C5 Grand Piano Sesleri:** Gerçek kuyruklu piyano çoklu örnekleri, keçe damper ve CC 64 sustain pedalı.
+- 🎛️ **Donanım MIDI & Klavye:** USB/Bluetooth dijital piyanolar, tuş harf rozetleri ve `[` / `]` ile oktav kaydırma.
+- 🔄 **Format Dönüştürücü:** `.mid` ➔ `.mp3` (akustik piyano render) ve `.mp3` ➔ `.mid` (spektral nota çıkarma).
+
+---
+
+## 🛠️ Architecture
 
 ```
 src/
 ├── audio/
-│   └── PianoEngine.ts         # Akustik Grand Piano SoundFont + Sustain Pedalı rezonansı
+│   └── PianoEngine.ts         # Yamaha C5 Salamander multi-sampler, anti-clip limiter, hardware lookahead
 ├── midi/
-│   ├── MidiManager.ts         # Web MIDI API, CC 64 sustain pedalı, bilgisayar klavyesi
-│   ├── MidiParser.ts          # .mid dosyası çözümleme ve akıllı el ayrımı (sol/sağ)
-│   └── MidiWriter.ts          # Notalardan standart .mid binary üretimi
+│   ├── MidiManager.ts         # Web MIDI API, CC 64 sustain pedal, keyboard bindings & octave shifts
+│   ├── MidiParser.ts          # .mid parser, auto-BPM IOI histogram detector, smart hand splitting
+│   └── MidiWriter.ts          # Generates standard binary .mid files
 ├── converter/
-│   ├── MidiToMp3.ts           # OfflineAudioContext + LAME MP3 kodlama
-│   ├── AudioToMidi.ts         # Spektral analiz ile ses dosyasından MIDI çıkarma
-│   └── mp3Encoder.ts          # LAME MP3 Float32 -> Int16 akış dönüştürücüsü
+│   ├── MidiToMp3.ts           # OfflineAudioContext + LAME MP3 client-side encoder
+│   ├── AudioToMidi.ts         # Spectral pitch detection & polyphonic transcription
+│   └── mp3Encoder.ts          # Float32 to Int16 LAME MP3 stream encoder
 ├── engine/
-│   └── PracticeEngine.ts      # Bekleme modu (wait-for-key), loop ve doğruluk motoru
+│   └── PracticeEngine.ts      # Wait-for-note logic, streak, accuracy scoring & A-B looping
 ├── visualizer/
-│   ├── SynthesiaCanvas.tsx    # 60+ FPS Canvas düşen nota şelalesi ve parçacıklar
-│   ├── PianoKeyboard.tsx      # 88 tuşlu 3D interaktif piyano klavyesi
-│   └── pianoLayout.ts         # 88 tuşun matematiksel konum hesabı
+│   ├── SynthesiaCanvas.tsx    # O(log N) binary search waterfall canvas & particle manager
+│   ├── PianoKeyboard.tsx      # 88-key interactive keyboard with keybinding letter badges
+│   └── pianoLayout.ts         # Mathematical 88-key piano geometry
 ├── components/
-│   ├── Navbar.tsx             # Üst çubuk, parça adı, donanım durumu
-│   ├── PlaybackControls.tsx   # Oynat/Durdur, Zaman, Hız, Modlar, A-B Loop
-│   ├── ConverterModal.tsx     # .mid ⇄ .mp3 çift yönlü dönüştürücü penceresi
-│   ├── AudioPlayerModal.tsx   # Dahili müzik dinleme oynatıcısı
-│   ├── SongSelectorModal.tsx  # Klasik eserler ve özel MIDI yükleyici
-│   └── MidiSettingsModal.tsx  # MIDI cihazı ve pedal test paneli
-├── data/
-│   └── sampleSongs.ts         # Für Elise, Türk Marşı, Bach Prelude, Moonlight Sonata
+│   ├── Navbar.tsx             # Featherweight top console with language toggle (TR/EN)
+│   ├── PlaybackControls.tsx   # Minimalist transport bar, scrub timeline, volume & modes
+│   ├── KeyBindingsModal.tsx   # Keyboard keymapping & octave configuration
+│   ├── ConverterModal.tsx     # .mid ⇄ .mp3 converter modal
+│   ├── AudioPlayerModal.tsx   # Integrated audio listening monitor
+│   ├── SongSelectorModal.tsx  # Rush E, classical songs & custom MIDI file loader
+│   └── MidiSettingsModal.tsx  # MIDI hardware input & pedal test panel
+├── i18n/
+│   └── translations.ts        # English & Turkish localization
 └── types/
-    └── index.ts               # Tip tanımları
+    └── index.ts               # Shared TypeScript data models
 ```
 
 ---
 
-## 📦 GitHub Üzerinde Yayınlama
+## 📦 Deployment to GitHub Pages
 
-Projeyi kendi GitHub hesabınızda paylaşmak için:
+To host on your GitHub account with GitHub Pages:
 
 ```bash
-# Git deposunu GitHub'a bağlayın ve gönderin:
+# Push to your GitHub repo:
 git remote add origin https://github.com/gigglemorgan/open-synthesia.git
 git push -u origin main
 ```
 
-### GitHub Pages ile Ücretsiz Canlıya Alma
-1. `vite.config.ts` dosyasına `base: './'` ekleyin.
-2. `npm run build` komutunu çalıştırın.
-3. `dist` klasörünü GitHub Pages dalına veya gh-pages ile yayınlayın:
-   ```bash
-   npx gh-pages -d dist
-   ```
+In your repository on GitHub, go to **Settings > Pages** and select `main` branch (root or docs) or deploy via GitHub Actions.
 
 ---
 
-## 📄 Lisans
+## 📄 License
 
-Bu proje [MIT Lisansı](LICENSE) altında lisanslanmıştır. Özgürce çatallayabilir (fork), geliştirebilir ve paylaşabilirsiniz.
+This project is licensed under the [MIT License](LICENSE).
+Feel free to fork, customize, and contribute!

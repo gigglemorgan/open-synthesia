@@ -7,12 +7,14 @@ import React, { useState, useEffect } from 'react';
 import { X, Keyboard, RotateCcw, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { midiManager, DEFAULT_KEYBOARD_MAP } from '../midi/MidiManager';
 import { midiToNoteName } from '../audio/PianoEngine';
+import { translations, Language } from '../i18n/translations';
 
 interface KeyBindingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   showKeyBindings: boolean;
   onToggleShowKeyBindings: (show: boolean) => void;
+  lang?: Language;
 }
 
 export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
@@ -20,7 +22,9 @@ export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
   onClose,
   showKeyBindings,
   onToggleShowKeyBindings,
+  lang = 'en',
 }) => {
+  const t = translations[lang];
   const [octaveOffset, setOctaveOffset] = useState<number>(midiManager.getOctaveOffset());
   const [keyMap, setKeyMap] = useState<Record<string, number>>(midiManager.getKeyMap());
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -69,7 +73,7 @@ export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
           <div className="flex items-center space-x-2">
             <Keyboard className="w-4 h-4 text-indigo-400" />
             <h2 className="text-xs font-mono font-bold text-zinc-100 uppercase tracking-wider">
-              Klavye Tuş Atamaları & Kontroller
+              {t.keysTitle}
             </h2>
           </div>
 
@@ -86,10 +90,8 @@ export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
           {/* Oktav Kaydırma Barı */}
           <div className="p-3 bg-[#0a0b10] border border-[#1d2030] rounded-lg flex items-center justify-between">
             <div>
-              <span className="text-xs font-semibold text-zinc-200">Oktav Kaydırma</span>
-              <p className="text-[10px] text-zinc-500 font-mono">
-                Klavyeden <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">[</kbd> ve <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">]</kbd> tuşlarıyla da değiştirebilirsiniz
-              </p>
+              <span className="text-xs font-semibold text-zinc-200">{t.octaveShift}</span>
+              <p className="text-[10px] text-zinc-500 font-mono">{t.octaveHelp}</p>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -97,20 +99,20 @@ export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
                 onClick={() => handleOctaveChange(-1)}
                 disabled={octaveOffset <= -2}
                 className="p-1.5 rounded bg-[#181a26] hover:bg-[#222538] disabled:opacity-30 text-zinc-300 border border-[#2b3046] transition-colors"
-                title="Oktav Aşağı (-1)"
+                title="Octave Down (-1)"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
 
               <span className="px-3 py-1 rounded bg-indigo-600/20 text-indigo-300 font-mono text-xs font-bold border border-indigo-500/30">
-                {octaveOffset === 0 ? 'Normal (0)' : octaveOffset > 0 ? `+${octaveOffset} Oktav` : `${octaveOffset} Oktav`}
+                {octaveOffset === 0 ? '0' : octaveOffset > 0 ? `+${octaveOffset}` : `${octaveOffset}`}
               </span>
 
               <button
                 onClick={() => handleOctaveChange(1)}
                 disabled={octaveOffset >= 2}
                 className="p-1.5 rounded bg-[#181a26] hover:bg-[#222538] disabled:opacity-30 text-zinc-300 border border-[#2b3046] transition-colors"
-                title="Oktav Yukarı (+1)"
+                title="Octave Up (+1)"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -120,8 +122,7 @@ export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
           {/* Tuş İpuçlarını Tuşlar Üzerinde Göster Switch */}
           <div className="flex items-center justify-between p-3 bg-[#0a0b10] border border-[#1d2030] rounded-lg">
             <div>
-              <span className="text-xs font-semibold text-zinc-200">Piyano Tuşlarında Harfleri Göster</span>
-              <p className="text-[10px] text-zinc-500 font-mono">Tuşların üzerine Q, W, E... harf rozetlerini yerleştirir</p>
+              <span className="text-xs font-semibold text-zinc-200">{t.showKeyLetters}</span>
             </div>
 
             <button
@@ -142,14 +143,14 @@ export const KeyBindingsModal: React.FC<KeyBindingsModalProps> = ({
           <div className="space-y-1.5">
             <div className="flex justify-between items-center px-1">
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
-                Tuş - Nota Eşleşmesi
+                {t.keysTitle}
               </span>
               <button
                 onClick={handleResetDefaults}
                 className="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 flex items-center space-x-1"
               >
                 <RotateCcw className="w-3 h-3" />
-                <span>Varsayılanlara Sıfırla</span>
+                <span>{t.resetKeys}</span>
               </button>
             </div>
 

@@ -8,12 +8,14 @@ import { X, FolderOpen, UploadCloud, Clock, Hash, Play } from 'lucide-react';
 import { SAMPLE_SONGS } from '../data/sampleSongs';
 import { LoadedSong } from '../types';
 import { MidiParser } from '../midi/MidiParser';
+import { translations, Language } from '../i18n/translations';
 
 interface SongSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentTitle: string;
   onSelectSong: (song: LoadedSong) => void;
+  lang?: Language;
 }
 
 export const SongSelectorModal: React.FC<SongSelectorModalProps> = ({
@@ -21,7 +23,9 @@ export const SongSelectorModal: React.FC<SongSelectorModalProps> = ({
   onClose,
   currentTitle,
   onSelectSong,
+  lang = 'en',
 }) => {
+  const t = translations[lang];
   if (!isOpen) return null;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,7 +67,7 @@ export const SongSelectorModal: React.FC<SongSelectorModalProps> = ({
           <div className="flex items-center space-x-2">
             <FolderOpen className="w-4 h-4 text-indigo-400" />
             <h2 className="text-xs font-mono font-bold text-zinc-100 uppercase tracking-wider">
-              Eser Kütüphanesi & MIDI Yükleme
+              {t.libraryTitle}
             </h2>
           </div>
 
@@ -96,10 +100,7 @@ export const SongSelectorModal: React.FC<SongSelectorModalProps> = ({
             >
               <UploadCloud className="w-5 h-5 text-indigo-400" />
               <span className="text-xs font-semibold text-zinc-200">
-                Kendi .mid Dosyanızı Yükleyin
-              </span>
-              <span className="text-[10px] text-zinc-500">
-                Sürükleyip bırakın veya dosyayı seçin
+                {t.uploadMidi}
               </span>
             </label>
           </div>
@@ -107,7 +108,7 @@ export const SongSelectorModal: React.FC<SongSelectorModalProps> = ({
           {/* Hazır Klasik Eserler */}
           <div className="space-y-1.5">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400 px-1">
-              Klasik Etüd & Eserler
+              {t.builtInSongs}
             </span>
 
             <div className="space-y-1.5">

@@ -240,18 +240,25 @@ export class PianoEngine {
     const now = this.ctx.currentTime + Math.max(0, timeOffset);
     const clampedVelocity = Math.max(0.1, Math.min(1.0, velocity));
 
-    // Polifoni koruması
-    if (this.activeVoices.size > 32) {
-      const oldestKey = this.activeVoices.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.stopNote(oldestKey, 0.08, true);
+    // Aşırı Küme & 88 Tuş Polifoni Koruması (Aynı anda tüm tuşlara basıldığında bile sıfır zorlanma)
+    if (this.activeVoices.size >= 24) {
+      // En eski sesleri topluca hızlıca söndür
+      const iterator = this.activeVoices.entries();
+      let pruned = 0;
+      for (const [oldMidi, voice] of iterator) {
+        if (!voice.isUserHeld || pruned < 6) {
+          voice.stop(0.04);
+          this.activeVoices.delete(oldMidi);
+          pruned++;
+          if (pruned >= 6) break;
+        }
       }
     }
 
     // Önceki sesi yumuşakça söndür (ani kesme yapmaz)
     const existing = this.activeVoices.get(midi);
     if (existing) {
-      existing.stop(0.08);
+      existing.stop(0.06);
       this.activeVoices.delete(midi);
     }
 
@@ -263,7 +270,9 @@ export class PianoEngine {
     source.playbackRate.setValueAtTime(info.playbackRate, now);
 
     const gain = this.ctx.createGain();
-    const targetGain = Math.pow(clampedVelocity, 1.25) * 0.42;
+    // Yoğunluk ölçeklemesi: çok fazla tuşa basıldığında kazancı dinamik dengeler
+    const clusterScale = this.activeVoices.size > 8 ? Math.max(0.4, 8 / Math.sqrt(this.activeVoices.size * 5)) : 1.0;
+    const targetGain = Math.pow(clampedVelocity, 1.25) * 0.42 * clusterScale;
 
     // Pop-free mikro rampa
     gain.gain.setValueAtTime(0.0001, now);

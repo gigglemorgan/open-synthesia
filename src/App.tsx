@@ -33,6 +33,7 @@ import { AudioPlayerModal } from './components/AudioPlayerModal';
 import { SongSelectorModal } from './components/SongSelectorModal';
 import { MidiSettingsModal } from './components/MidiSettingsModal';
 import { KeyBindingsModal } from './components/KeyBindingsModal';
+import { Language } from './i18n/translations';
 
 export const App: React.FC = () => {
   // Current Song
@@ -54,6 +55,20 @@ export const App: React.FC = () => {
   const [waitingNotes, setWaitingNotes] = useState<VisualNote[]>([]);
   const [isWaiting, setIsWaiting] = useState<boolean>(false);
   const [showKeyBindings, setShowKeyBindings] = useState<boolean>(true);
+  const [lang, setLang] = useState<Language>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('open_synthesia_lang') : null;
+    return (saved === 'tr' || saved === 'en') ? saved : 'en';
+  });
+
+  const handleToggleLang = useCallback(() => {
+    setLang((prev) => {
+      const next = prev === 'en' ? 'tr' : 'en';
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('open_synthesia_lang', next);
+      }
+      return next;
+    });
+  }, []);
 
   // Practice Stats
   const [practiceStats, setPracticeStats] = useState<PracticeStats>({
@@ -423,7 +438,8 @@ export const App: React.FC = () => {
         sustainPedalActive={sustainPedalActive}
         practiceStats={practiceStats}
         isSoundfontLoaded={isSoundfontLoaded}
-        soundfontProgress={soundfontProgress}
+        lang={lang}
+        onToggleLang={handleToggleLang}
         onOpenSongSelector={() => setIsSongSelectorOpen(true)}
         onOpenConverter={() => setIsConverterOpen(true)}
         onOpenAudioPlayer={() => setIsAudioPlayerOpen(true)}
@@ -468,6 +484,7 @@ export const App: React.FC = () => {
         loopStart={loopStart}
         loopEnd={loopEnd}
         volume={volume}
+        lang={lang}
         onVolumeChange={handleVolumeChange}
         onPlayPause={handlePlayPause}
         onRewind={handleRewind}
@@ -503,6 +520,7 @@ export const App: React.FC = () => {
         onClose={() => setIsSongSelectorOpen(false)}
         currentTitle={currentSong.metadata.title}
         onSelectSong={handleSelectSong}
+        lang={lang}
       />
 
       <MidiSettingsModal
@@ -519,6 +537,7 @@ export const App: React.FC = () => {
         onClose={() => setIsKeyBindingsOpen(false)}
         showKeyBindings={showKeyBindings}
         onToggleShowKeyBindings={setShowKeyBindings}
+        lang={lang}
       />
     </div>
   );
