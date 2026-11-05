@@ -71,7 +71,7 @@ OpenSynthesia; Synthesia'nın en sevilen özelliklerini modern web teknolojileri
 
 ```bash
 # 1. Projeyi klonlayın
-git clone https://github.com/KULLANICI_ADINIZ/open-synthesia.git
+git clone https://github.com/gigglemorgan/open-synthesia.git
 cd open-synthesia
 
 # 2. Bağımlılıkları yükleyin
@@ -125,14 +125,8 @@ src/
 Projeyi kendi GitHub hesabınızda paylaşmak için:
 
 ```bash
-# Git deposunu başlatın
-git init
-git add .
-git commit -m "feat: initial commit - OpenSynthesia piano studio"
-
-# GitHub reponuzu ekleyin
-git branch -M main
-git remote add origin https://github.com/KULLANICI_ADINIZ/open-synthesia.git
+# Git deposunu GitHub'a bağlayın ve gönderin:
+git remote add origin https://github.com/gigglemorgan/open-synthesia.git
 git push -u origin main
 ```
 

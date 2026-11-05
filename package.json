@@ -1,8 +1,14 @@
 {
-  "name": "open-piano-studio",
-  "private": true,
+  "name": "open-synthesia",
+  "private": false,
   "version": "1.0.0",
   "type": "module",
+  "author": "gigglemorgan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gigglemorgan/open-synthesia.git"
+  },
+  "homepage": "https://gigglemorgan.github.io/open-synthesia",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
