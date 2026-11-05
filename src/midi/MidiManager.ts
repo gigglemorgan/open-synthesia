@@ -1,9 +1,9 @@
 /**
  * MidiManager.ts
- * Web MIDI API Donanım Girişi & Sustain Pedalı Yöneticisi
- * - USB/Bluetooth MIDI klavye ve piyano tespiti
- * - Gerçek CC 64 Sustain Pedalı desteği
- * - Bilgisayar klavyesi tuş piyano yedeği (Space = Sustain Pedal)
+ * Web MIDI API & Özelleştirilebilir Bilgisayar Klavyesi Yöneticisi
+ * - Oktav Kaydırma ([ ve ] tuşları ile +2/-2 oktav)
+ * - Tuş Etiketi Geri Bildirimi (Piyano tuşlarının üstünde tuş harfini gösterme)
+ * - CC 64 Sustain Pedalı & Spacebar
  */
 
 import { MidiDevice } from '../types';
@@ -11,13 +11,15 @@ import { MidiDevice } from '../types';
 export type NoteEventCallback = (midi: number, velocity: number) => void;
 export type PedalEventCallback = (isDown: boolean, value: number) => void;
 export type DeviceChangeCallback = (devices: MidiDevice[], activeDevice: MidiDevice | null) => void;
+export type KeyboardConfigCallback = (octaveOffset: number, map: Record<string, number>) => void;
 
-// QWERTY keyboard map (2 full octaves centered on C4)
-const KEYBOARD_MAP: Record<string, number> = {
-  // Lower octave (C3 - B3)
+// Temel QWERTY haritası (Orta C4 = 60 merkezli)
+export const DEFAULT_KEYBOARD_MAP: Record<string, number> = {
+  // Alt Oktav (C3 - B3)
   'z': 48, 's': 49, 'x': 50, 'd': 51, 'c': 52, 'v': 53, 'g': 54, 'b': 55, 'h': 56, 'n': 57, 'j': 58, 'm': 59,
-  // Middle & upper octave (C4 - E5)
+  // Ana Oktav (C4 - B4)
   'q': 60, '2': 61, 'w': 62, '3': 63, 'e': 64, 'r': 65, '5': 66, 't': 67, '6': 68, 'y': 69, '7': 70, 'u': 71,
+  // Üst Oktav başlangıcı (C5 - E5)
   'i': 72, '9': 73, 'o': 74, '0': 75, 'p': 76
 };
 
@@ -28,10 +30,15 @@ export class MidiManager {
   private isSustainPedalDown = false;
   private pressedKeyboardKeys: Set<string> = new Set();
 
+  // Klavye atamaları ve oktav ofseti
+  private keyMap: Record<string, number> = { ...DEFAULT_KEYBOARD_MAP };
+  private octaveOffset: number = 0; // -2, -1, 0, +1, +2
+
   private onNoteOnListeners: Set<NoteEventCallback> = new Set();
   private onNoteOffListeners: Set<NoteEventCallback> = new Set();
   private onPedalListeners: Set<PedalEventCallback> = new Set();
   private onDeviceChangeListeners: Set<DeviceChangeCallback> = new Set();
+  private onConfigListeners: Set<KeyboardConfigCallback> = new Set();
 
   constructor() {
     this.setupKeyboardFallback();
@@ -51,7 +58,6 @@ export class MidiManager {
         this.updateDeviceList();
       };
 
-      // Automatically select first available input if none is selected
       if (!this.activeInput && this.devices.length > 0) {
         this.selectDevice(this.devices[0].id);
       }
@@ -80,7 +86,6 @@ export class MidiManager {
 
     this.devices = list;
 
-    // Check if active input is still valid
     if (this.activeInput) {
       const stillConnected = list.some(d => d.id === this.activeInput?.id);
       if (!stillConnected) {
@@ -88,7 +93,6 @@ export class MidiManager {
       }
     }
 
-    // Auto-select first if currently null
     if (!this.activeInput && list.length > 0) {
       this.selectDevice(list[0].id);
     }
@@ -99,7 +103,6 @@ export class MidiManager {
   public selectDevice(deviceId: string): boolean {
     if (!this.midiAccess) return false;
 
-    // Remove listener from previous input
     if (this.activeInput) {
       this.activeInput.onmidimessage = null;
       this.activeInput = null;
@@ -129,6 +132,43 @@ export class MidiManager {
     return this.isSustainPedalDown;
   }
 
+  // --- Klavye Atamaları ve Oktav Kontrolü ---
+
+  public getOctaveOffset(): number {
+    return this.octaveOffset;
+  }
+
+  public setOctaveOffset(offset: number): void {
+    this.octaveOffset = Math.max(-2, Math.min(2, offset));
+    this.notifyConfigChange();
+  }
+
+  public shiftOctave(delta: number): void {
+    this.setOctaveOffset(this.octaveOffset + delta);
+  }
+
+  public getKeyMap(): Record<string, number> {
+    return { ...this.keyMap };
+  }
+
+  public setKeyMap(newMap: Record<string, number>): void {
+    this.keyMap = { ...newMap };
+    this.notifyConfigChange();
+  }
+
+  /**
+   * Belirli bir MIDI notasına denk gelen bilgisayar klavyesi tuşunu bulur
+   */
+  public getKeyForMidi(midi: number): string | null {
+    const effectiveMidi = midi - (this.octaveOffset * 12);
+    for (const [key, noteMidi] of Object.entries(this.keyMap)) {
+      if (noteMidi === effectiveMidi) {
+        return key.toUpperCase();
+      }
+    }
+    return null;
+  }
+
   private handleMidiMessage(event: WebMidi.MIDIMessageEvent): void {
     const data = event.data;
     if (!data || data.length < 2) return;
@@ -140,10 +180,8 @@ export class MidiManager {
     switch (status) {
       case 0x90: // Note On
         if (velocityOrValue > 0) {
-          const normVel = velocityOrValue / 127;
-          this.notifyNoteOn(noteOrControl, normVel);
+          this.notifyNoteOn(noteOrControl, velocityOrValue / 127);
         } else {
-          // Velocity 0 is note off
           this.notifyNoteOff(noteOrControl, 0);
         }
         break;
@@ -152,8 +190,7 @@ export class MidiManager {
         this.notifyNoteOff(noteOrControl, velocityOrValue / 127);
         break;
 
-      case 0xb0: // Control Change
-        // CC 64 = Sustain Pedal (Damper)
+      case 0xb0: // Control Change (CC 64 = Sustain Pedal)
         if (noteOrControl === 64) {
           const isDown = velocityOrValue >= 64;
           this.isSustainPedalDown = isDown;
@@ -167,13 +204,12 @@ export class MidiManager {
     if (typeof window === 'undefined') return;
 
     window.addEventListener('keydown', (e) => {
-      // Ignore if user is typing in an input or textarea
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return;
       }
 
-      // Spacebar for Sustain Pedal
+      // Spacebar: Sustain Pedal
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
         this.isSustainPedalDown = true;
@@ -181,16 +217,30 @@ export class MidiManager {
         return;
       }
 
+      // Oktav Kaydırma Kısayolları ([ = Oktav Aşağı, ] = Oktav Yukarı)
+      if (e.key === '[' || e.key === '{') {
+        e.preventDefault();
+        this.shiftOctave(-1);
+        return;
+      }
+      if (e.key === ']' || e.key === '}') {
+        e.preventDefault();
+        this.shiftOctave(1);
+        return;
+      }
+
       const key = e.key.toLowerCase();
-      if (KEYBOARD_MAP[key] !== undefined && !this.pressedKeyboardKeys.has(key)) {
+      if (this.keyMap[key] !== undefined && !this.pressedKeyboardKeys.has(key)) {
         this.pressedKeyboardKeys.add(key);
-        const midi = KEYBOARD_MAP[key];
-        this.notifyNoteOn(midi, 0.85);
+        const baseMidi = this.keyMap[key];
+        const actualMidi = baseMidi + (this.octaveOffset * 12);
+        if (actualMidi >= 21 && actualMidi <= 108) {
+          this.notifyNoteOn(actualMidi, 0.85);
+        }
       }
     });
 
     window.addEventListener('keyup', (e) => {
-      // Spacebar release
       if (e.code === 'Space') {
         e.preventDefault();
         this.isSustainPedalDown = false;
@@ -201,13 +251,13 @@ export class MidiManager {
       const key = e.key.toLowerCase();
       if (this.pressedKeyboardKeys.has(key)) {
         this.pressedKeyboardKeys.delete(key);
-        const midi = KEYBOARD_MAP[key];
-        this.notifyNoteOff(midi, 0);
+        const baseMidi = this.keyMap[key];
+        const actualMidi = baseMidi + (this.octaveOffset * 12);
+        this.notifyNoteOff(actualMidi, 0);
       }
     });
   }
 
-  // Event Subscription methods
   public onNoteOn(cb: NoteEventCallback): () => void {
     this.onNoteOnListeners.add(cb);
     return () => this.onNoteOnListeners.delete(cb);
@@ -228,6 +278,11 @@ export class MidiManager {
     return () => this.onDeviceChangeListeners.delete(cb);
   }
 
+  public onConfigChange(cb: KeyboardConfigCallback): () => void {
+    this.onConfigListeners.add(cb);
+    return () => this.onConfigListeners.delete(cb);
+  }
+
   private notifyNoteOn(midi: number, velocity: number): void {
     this.onNoteOnListeners.forEach(cb => cb(midi, velocity));
   }
@@ -243,6 +298,10 @@ export class MidiManager {
   private notifyDeviceChange(): void {
     const active = this.getActiveDevice();
     this.onDeviceChangeListeners.forEach(cb => cb(this.devices, active));
+  }
+
+  private notifyConfigChange(): void {
+    this.onConfigListeners.forEach(cb => cb(this.octaveOffset, this.keyMap));
   }
 }
 

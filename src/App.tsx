@@ -1,6 +1,9 @@
 /**
  * App.tsx
  * OpenSynthesia - Ana Stüdyo & Uygulama Koordinatörü
+ * - Stutter-Free Web Audio Donanım Çizelgeleyicisi (Sıfır duraksama)
+ * - Modern, Sade Minimalist Stüdyo Arayüzü
+ * - Klavye Tuş Atamaları & Oktav Kaydırma
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -29,6 +32,7 @@ import { ConverterModal } from './components/ConverterModal';
 import { AudioPlayerModal } from './components/AudioPlayerModal';
 import { SongSelectorModal } from './components/SongSelectorModal';
 import { MidiSettingsModal } from './components/MidiSettingsModal';
+import { KeyBindingsModal } from './components/KeyBindingsModal';
 
 export const App: React.FC = () => {
   // Current Song
@@ -49,6 +53,7 @@ export const App: React.FC = () => {
   const [activeNotes, setActiveNotes] = useState<Map<number, ActiveNote>>(new Map());
   const [waitingNotes, setWaitingNotes] = useState<VisualNote[]>([]);
   const [isWaiting, setIsWaiting] = useState<boolean>(false);
+  const [showKeyBindings, setShowKeyBindings] = useState<boolean>(true);
 
   // Practice Stats
   const [practiceStats, setPracticeStats] = useState<PracticeStats>({
@@ -74,24 +79,26 @@ export const App: React.FC = () => {
   const [isConverterOpen, setIsConverterOpen] = useState<boolean>(false);
   const [isAudioPlayerOpen, setIsAudioPlayerOpen] = useState<boolean>(false);
   const [isMidiSettingsOpen, setIsMidiSettingsOpen] = useState<boolean>(false);
+  const [isKeyBindingsOpen, setIsKeyBindingsOpen] = useState<boolean>(false);
 
   // Audio player modal URL & title
   const [playerAudioUrl, setPlayerAudioUrl] = useState<string | null>(null);
   const [playerAudioTitle, setPlayerAudioTitle] = useState<string>('');
 
-  // Refs for animation loop
+  // Refs for animation & lookahead audio scheduling loop
   const practiceEngineRef = useRef<PracticeEngine>(new PracticeEngine(currentSong.notes));
   const isPlayingRef = useRef<boolean>(isPlaying);
   const currentTimeRef = useRef<number>(currentTime);
-  const playedNoteIdsRef = useRef<Set<string>>(new Set());
+  const scheduledNoteIdsRef = useRef<Set<string>>(new Set());
   const lastFrameTimeRef = useRef<number>(0);
+  const tempoRef = useRef<number>(tempo);
 
   isPlayingRef.current = isPlaying;
   currentTimeRef.current = currentTime;
+  tempoRef.current = tempo;
 
   // Initialize Audio & Soundfont & MIDI
   useEffect(() => {
-    // Soundfont loading progress
     pianoEngine.setProgressCallback((pct) => {
       setSoundfontProgress(pct);
       if (pct >= 100) {
@@ -99,24 +106,20 @@ export const App: React.FC = () => {
       }
     });
 
-    // Start background soundfont loading
     pianoEngine.loadSoundfont().then(() => {
       setIsSoundfontLoaded(pianoEngine.isLoaded());
     });
 
-    // Initialize Web MIDI API
     midiManager.initMidi().then(() => {
       setMidiDevices(midiManager.getDevices());
       setActiveMidiDevice(midiManager.getActiveDevice());
     });
 
-    // MIDI device changes
     const unsubDev = midiManager.onDeviceChange((devs, active) => {
       setMidiDevices([...devs]);
       setActiveMidiDevice(active);
     });
 
-    // Practice engine stats & waiting subscriptions
     const engine = practiceEngineRef.current;
     engine.subscribeStats((stats) => setPracticeStats(stats));
     engine.subscribeWaiting((waiting, notes) => {
@@ -124,7 +127,7 @@ export const App: React.FC = () => {
       setWaitingNotes(notes);
     });
     engine.subscribeLoopRestart(() => {
-      playedNoteIdsRef.current.clear();
+      scheduledNoteIdsRef.current.clear();
       pianoEngine.stopAllNotes();
     });
 
@@ -144,21 +147,17 @@ export const App: React.FC = () => {
       loopStart,
       loopEnd,
     });
-    playedNoteIdsRef.current.clear();
+    scheduledNoteIdsRef.current.clear();
     setWaitingNotes([]);
     setIsWaiting(false);
   }, [currentSong, mode, hand, tempo, loopStart, loopEnd]);
 
   // Handle Hardware / User MIDI Input
   useEffect(() => {
-    // Hardware MIDI Note On
     const unsubNoteOn = midiManager.onNoteOn((midi, velocity) => {
       pianoEngine.playNote(midi, velocity);
-
-      // Check practice engine
       practiceEngineRef.current.handleUserNotePress(midi);
 
-      // Visual keyboard highlight
       setActiveNotes((prev) => {
         const next = new Map(prev);
         next.set(midi, { midi, velocity, source: 'user' });
@@ -166,7 +165,6 @@ export const App: React.FC = () => {
       });
     });
 
-    // Hardware MIDI Note Off
     const unsubNoteOff = midiManager.onNoteOff((midi) => {
       pianoEngine.stopNote(midi);
 
@@ -179,7 +177,6 @@ export const App: React.FC = () => {
       });
     });
 
-    // Hardware Sustain Pedal (CC 64)
     const unsubPedal = midiManager.onPedal((isDown) => {
       setSustainPedalActive(isDown);
       pianoEngine.setSustainPedal(isDown);
@@ -192,24 +189,25 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Trigger high streak celebration
+  // Streak Confetti
   useEffect(() => {
     if (practiceStats.currentStreak > 0 && practiceStats.currentStreak % 25 === 0) {
       confetti({
-        particleCount: 50,
-        spread: 60,
+        particleCount: 40,
+        spread: 50,
         origin: { y: 0.8 },
       });
     }
   }, [practiceStats.currentStreak]);
 
-  // Master Animation & Playback Loop
+  // STUTTER-FREE LOOKAHEAD AUDIO SCHEDULING & ANIMATION LOOP
   useEffect(() => {
     let animId: number;
+    const LOOKAHEAD_SEC = 0.18; // 180ms donanım ön-çizelgeleme
 
     const loop = (timestamp: number) => {
       if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
-      const dt = Math.min(0.1, (timestamp - lastFrameTimeRef.current) / 1000);
+      const dt = Math.min(0.08, (timestamp - lastFrameTimeRef.current) / 1000);
       lastFrameTimeRef.current = timestamp;
 
       if (isPlayingRef.current) {
@@ -221,38 +219,55 @@ export const App: React.FC = () => {
           currentTimeRef.current = newTime;
           setCurrentTime(newTime);
 
-          // Trigger Notes that crossed newTime
           const currentT = newTime;
+          const currentTempo = tempoRef.current;
           const engineConfig = engine.getConfig();
+          const scheduledIds = scheduledNoteIdsRef.current;
+          const nowAudioTime = pianoEngine.getCurrentTime();
 
-          const activeVoices = new Map<number, ActiveNote>();
+          // 1. Lookahead Audio Scheduling (Donanım Saatiyle Mikro Saniye Hassasiyetinde Çalma)
+          // UI gecikmesi veya drop frame olsa bile Web Audio hardware thread'inde sıfır duraksama ile çalar!
+          for (let i = 0; i < currentSong.notes.length; i++) {
+            const n = currentSong.notes[i];
 
-          currentSong.notes.forEach((n) => {
-            const isTargetForUser = 
-              engineConfig.mode === 'practice-wait' &&
-              ((engineConfig.hand === 'both') ||
-               (engineConfig.hand === 'right' && n.hand === 'right') ||
-               (engineConfig.hand === 'left' && n.hand === 'left'));
+            // Gelecek 180ms içindeki henüz çizelgelenmemiş notalar
+            if (n.time >= currentT - 0.02 && n.time <= currentT + LOOKAHEAD_SEC) {
+              if (!scheduledIds.has(n.id)) {
+                const isTargetForUser = 
+                  engineConfig.mode === 'practice-wait' &&
+                  ((engineConfig.hand === 'both') ||
+                   (engineConfig.hand === 'right' && n.hand === 'right') ||
+                   (engineConfig.hand === 'left' && n.hand === 'left'));
 
-            // If note should play (either normal play, or computer plays opposite hand)
-            if (!isTargetForUser) {
-              if (n.time <= currentT && n.time + n.duration >= currentT) {
-                activeVoices.set(n.midi, {
-                  midi: n.midi,
-                  velocity: n.velocity,
-                  source: 'playback',
-                  hand: n.hand,
-                });
-
-                if (!playedNoteIdsRef.current.has(n.id) && Math.abs(currentT - n.time) < 0.1) {
-                  playedNoteIdsRef.current.add(n.id);
-                  pianoEngine.playNote(n.midi, n.velocity);
+                if (!isTargetForUser) {
+                  scheduledIds.add(n.id);
+                  const songDelta = Math.max(0, n.time - currentT);
+                  const audioStart = nowAudioTime + (songDelta / currentTempo);
+                  pianoEngine.scheduleNote(n.midi, n.velocity, audioStart, n.duration / currentTempo);
                 }
               }
+            } else if (n.time > currentT + LOOKAHEAD_SEC) {
+              // Notalar zaman sırasına göre dizili olduğu için ilerisini taramaya gerek yok
+              break;
             }
-          });
+          }
 
-          // Retain any user active notes
+          // 2. Ekrandaki Tuş Işıklandırması (Visual Voice Tracking)
+          const activeVoices = new Map<number, ActiveNote>();
+          for (let i = 0; i < currentSong.notes.length; i++) {
+            const n = currentSong.notes[i];
+            if (n.time <= currentT && n.time + n.duration >= currentT) {
+              activeVoices.set(n.midi, {
+                midi: n.midi,
+                velocity: n.velocity,
+                source: 'playback',
+                hand: n.hand,
+              });
+            } else if (n.time > currentT + 0.1) {
+              break;
+            }
+          }
+
           setActiveNotes((prev) => {
             const merged = new Map(activeVoices);
             prev.forEach((val, key) => {
@@ -263,11 +278,11 @@ export const App: React.FC = () => {
             return merged;
           });
 
-          // Check End of Song
+          // Şarkı Bitişi
           if (newTime >= currentSong.metadata.duration) {
             setIsPlaying(false);
             pianoEngine.stopAllNotes();
-            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+            confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
           }
         }
       }
@@ -289,11 +304,12 @@ export const App: React.FC = () => {
     if (isPlaying) {
       setIsPlaying(false);
       pianoEngine.stopAllNotes();
+      scheduledNoteIdsRef.current.clear();
     } else {
       if (currentTime >= currentSong.metadata.duration) {
         setCurrentTime(0);
         currentTimeRef.current = 0;
-        playedNoteIdsRef.current.clear();
+        scheduledNoteIdsRef.current.clear();
         practiceEngineRef.current.resetStats();
       }
       setIsPlaying(true);
@@ -303,7 +319,7 @@ export const App: React.FC = () => {
   const handleRewind = useCallback(() => {
     setCurrentTime(0);
     currentTimeRef.current = 0;
-    playedNoteIdsRef.current.clear();
+    scheduledNoteIdsRef.current.clear();
     pianoEngine.stopAllNotes();
     practiceEngineRef.current.resetStats();
   }, []);
@@ -311,21 +327,15 @@ export const App: React.FC = () => {
   const handleSeek = useCallback((time: number) => {
     setCurrentTime(time);
     currentTimeRef.current = time;
-    playedNoteIdsRef.current.clear();
-    // Mark passed notes as played to prevent audio explosion
-    currentSong.notes.forEach((n) => {
-      if (n.time < time) playedNoteIdsRef.current.add(n.id);
-    });
+    scheduledNoteIdsRef.current.clear();
     pianoEngine.stopAllNotes();
-  }, [currentSong]);
+  }, []);
 
-  // Master Volume handler
   const handleVolumeChange = useCallback((newVol: number) => {
     setVolume(newVol);
     pianoEngine.setMasterVolume(newVol);
   }, []);
 
-  // Auto Detect BPM handler
   const handleAutoDetectBpm = useCallback(() => {
     if (currentSong.notes.length < 4) return;
     const detected = detectBpmFromNoteTimings(currentSong.notes.map(n => n.time));
@@ -363,11 +373,11 @@ export const App: React.FC = () => {
   // Song Select
   const handleSelectSong = (song: LoadedSong) => {
     pianoEngine.stopAllNotes();
+    scheduledNoteIdsRef.current.clear();
     setCurrentSong(song);
     handleRewind();
   };
 
-  // Open audio in listening player
   const handleOpenAudioInPlayer = (url: string, title: string) => {
     setPlayerAudioUrl(url);
     setPlayerAudioTitle(title);
@@ -379,8 +389,8 @@ export const App: React.FC = () => {
   }, [activeNotes]);
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0b0d13] font-sans">
-      {/* 1. Üst Menü & Durum Çubuğu */}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#090a0e] font-sans text-zinc-100">
+      {/* 1. Sade & Modern Üst Durum Çubuğu */}
       <Navbar
         songTitle={currentSong.metadata.title}
         activeDevice={activeMidiDevice}
@@ -392,6 +402,7 @@ export const App: React.FC = () => {
         onOpenConverter={() => setIsConverterOpen(true)}
         onOpenAudioPlayer={() => setIsAudioPlayerOpen(true)}
         onOpenMidiSettings={() => setIsMidiSettingsOpen(true)}
+        onOpenKeyBindings={() => setIsKeyBindingsOpen(true)}
       />
 
       {/* 2. Synthesia Falling Notes Şelale Alanı */}
@@ -413,6 +424,7 @@ export const App: React.FC = () => {
           onNotePress={handleScreenNotePress}
           onNoteRelease={handleScreenNoteRelease}
           showLabels={true}
+          showKeyBindings={showKeyBindings}
           sustainPedalActive={sustainPedalActive}
         />
       </main>
@@ -474,6 +486,13 @@ export const App: React.FC = () => {
         activeDevice={activeMidiDevice}
         onSelectDevice={(id) => midiManager.selectDevice(id)}
         sustainPedalActive={sustainPedalActive}
+      />
+
+      <KeyBindingsModal
+        isOpen={isKeyBindingsOpen}
+        onClose={() => setIsKeyBindingsOpen(false)}
+        showKeyBindings={showKeyBindings}
+        onToggleShowKeyBindings={setShowKeyBindings}
       />
     </div>
   );

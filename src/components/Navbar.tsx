@@ -9,8 +9,8 @@ import {
   RefreshCw, 
   Headphones, 
   Music2, 
-  SlidersHorizontal,
-  FolderOpen
+  FolderOpen,
+  Keyboard
 } from 'lucide-react';
 import { MidiDevice, PracticeStats } from '../types';
 
@@ -25,6 +25,7 @@ interface NavbarProps {
   onOpenConverter: () => void;
   onOpenAudioPlayer: () => void;
   onOpenMidiSettings: () => void;
+  onOpenKeyBindings: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -38,6 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenConverter,
   onOpenAudioPlayer,
   onOpenMidiSettings,
+  onOpenKeyBindings,
 }) => {
   return (
     <header className="h-12 bg-[#0d0e14] border-b border-[#1f2230] px-3.5 flex items-center justify-between z-40 select-none">
@@ -112,6 +114,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden lg:inline max-w-[120px] truncate text-[11px]">
             {activeDevice ? activeDevice.name : 'MIDI'}
           </span>
+        </button>
+
+        {/* Klavye Tuş Atamaları */}
+        <button
+          onClick={onOpenKeyBindings}
+          className="flex items-center space-x-1 px-2 py-1 rounded bg-[#161822] hover:bg-[#202332] border border-[#262b3d] text-xs font-mono text-zinc-300 hover:text-white transition-colors"
+          title="Bilgisayar Klavyesi Atamaları & Oktav"
+        >
+          <Keyboard className="w-3.5 h-3.5 text-indigo-400" />
+          <span className="hidden sm:inline text-[11px]">Tuşlar</span>
         </button>
 
         {/* Format Dönüştürücü */}

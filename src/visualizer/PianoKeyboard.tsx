@@ -1,15 +1,15 @@
 /**
  * PianoKeyboard.tsx
- * Stüdyo Tipi 88 Tuşlu Akustik Piyano Klavyesi
- * - Gerçek piyanodaki kırmızı keçe şerit (Felt strip)
- * - Fildişi beyaz ve abanoz siyah tuş kaplaması
- * - Sol el (Saf Kobalt Mavisi), Sağ el (Zümrüt Yeşili) ve Kullanıcı tuş ışıkları
- * - Bekleme modunda şık LED hedef göstergesi
+ * Modern, Minimalist 88 Tuşlu Piyano Klavyesi
+ * - Bilgisayar klavyesi tuş harfleri (Q, W, E, R, T...) tuşların üzerinde
+ * - Zarif kırmızı keçe şerit ve modern mat kaplama
+ * - Akıcı basış animasyonları ve LED ışıklandırma
  */
 
 import React, { useMemo } from 'react';
 import { PIANO_KEYS_88, isBlackKey, TOTAL_WHITE_KEYS } from './pianoLayout';
 import { ActiveNote, VisualNote } from '../types';
+import { midiManager } from '../midi/MidiManager';
 
 interface PianoKeyboardProps {
   activeNotes: Map<number, ActiveNote>;
@@ -17,6 +17,7 @@ interface PianoKeyboardProps {
   onNotePress?: (midi: number) => void;
   onNoteRelease?: (midi: number) => void;
   showLabels?: boolean;
+  showKeyBindings?: boolean;
   sustainPedalActive?: boolean;
 }
 
@@ -26,6 +27,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   onNotePress,
   onNoteRelease,
   showLabels = true,
+  showKeyBindings = true,
   sustainPedalActive = false,
 }) => {
   const waitingMidiSet = useMemo(() => {
@@ -36,35 +38,33 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   const blackKeys = useMemo(() => PIANO_KEYS_88.filter(k => k.isBlack), []);
 
   return (
-    <div className="relative w-full h-36 bg-[#0c0d12] select-none flex flex-col justify-end shadow-[0_-8px_25px_rgba(0,0,0,0.6)]">
-      {/* 1. Klasik Akustik Piyano Kırmızı Keçe Şeridi (Red Felt Strip) */}
-      <div className="h-1.5 w-full bg-[#831822] border-b border-[#5a1017] shadow-inner relative z-30 flex items-center justify-between px-3">
-        <div className="h-[1px] w-full bg-[#9e202d] opacity-60" />
-      </div>
+    <div className="relative w-full h-32 bg-[#0a0b0e] select-none flex flex-col justify-end shadow-2xl border-t border-[#181a24]">
+      {/* İnce Kırmızı Keçe Çizgisi (Red Felt Line) */}
+      <div className="h-1 w-full bg-[#991b1b] relative z-30" />
 
-      {/* 2. Sustain Pedal Aktif Barı */}
+      {/* Sustain Pedal İnce Işık Çubuğu */}
       {sustainPedalActive && (
-        <div className="h-0.5 w-full bg-amber-400/90 shadow-[0_0_8px_#f59e0b] relative z-30 transition-all duration-100" />
+        <div className="h-0.5 w-full bg-amber-400 shadow-[0_0_8px_#f59e0b] relative z-30 transition-all duration-75" />
       )}
 
-      {/* 3. Klavye Alanı */}
-      <div className="relative w-full h-[130px] flex">
+      {/* Klavye Tuş Alanı */}
+      <div className="relative w-full h-[122px] flex">
         {/* Beyaz Tuşlar */}
         {whiteKeys.map((key) => {
           const active = activeNotes.get(key.midi);
           const isWaiting = waitingMidiSet.has(key.midi);
+          const keyLetter = showKeyBindings ? midiManager.getKeyForMidi(key.midi) : null;
 
-          // Tuş rengi
-          let keyClass = 'bg-[#f4f4f5] hover:bg-[#eaeaea] text-zinc-500 border-zinc-300';
+          let keyBg = 'bg-[#f8f9fa] hover:bg-[#edeef0] text-zinc-600 border-zinc-300/80';
           if (isWaiting) {
-            keyClass = 'bg-amber-300 text-zinc-900 shadow-[inset_0_-8px_16px_rgba(245,158,11,0.5)] border-amber-500';
+            keyBg = 'bg-amber-300 text-zinc-900 border-amber-500 shadow-[inset_0_-8px_12px_rgba(245,158,11,0.4)]';
           } else if (active) {
             if (active.source === 'user') {
-              keyClass = 'bg-indigo-400 text-white shadow-[inset_0_-8px_16px_rgba(99,102,241,0.5)] border-indigo-600';
+              keyBg = 'bg-indigo-400 text-white border-indigo-600 shadow-[inset_0_-8px_12px_rgba(99,102,241,0.5)]';
             } else if (active.hand === 'left') {
-              keyClass = 'bg-blue-400 text-white shadow-[inset_0_-8px_16px_rgba(59,130,246,0.5)] border-blue-600';
+              keyBg = 'bg-sky-400 text-white border-sky-600 shadow-[inset_0_-8px_12px_rgba(56,189,248,0.5)]';
             } else {
-              keyClass = 'bg-emerald-400 text-white shadow-[inset_0_-8px_16px_rgba(16,185,129,0.5)] border-emerald-600';
+              keyBg = 'bg-emerald-400 text-white border-emerald-600 shadow-[inset_0_-8px_12px_rgba(52,211,153,0.5)]';
             }
           }
 
@@ -76,23 +76,27 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
               onMouseLeave={() => onNoteRelease?.(key.midi)}
               onTouchStart={(e) => { e.preventDefault(); onNotePress?.(key.midi); }}
               onTouchEnd={(e) => { e.preventDefault(); onNoteRelease?.(key.midi); }}
-              className={`relative flex-1 h-full border-r border-b rounded-b-[4px] cursor-pointer transition-[transform,background-color] duration-75 ${keyClass} ${
-                active ? 'translate-y-[3px]' : 'shadow-[0_4px_6px_rgba(0,0,0,0.3)]'
+              className={`relative flex-1 h-full border-r border-b rounded-b-[3px] cursor-pointer transition-all duration-75 ${keyBg} ${
+                active ? 'translate-y-[2px]' : 'shadow-sm'
               }`}
-              style={{
-                width: `${100 / TOTAL_WHITE_KEYS}%`,
-              }}
+              style={{ width: `${100 / TOTAL_WHITE_KEYS}%` }}
             >
-              {/* C tuşlarında nota adı etiketi */}
+              {/* Klavye Tuş Harfi (örn: Q, W, E...) */}
+              {keyLetter && (
+                <span className="absolute bottom-5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-zinc-200/90 text-[9px] font-mono font-bold text-zinc-800 flex items-center justify-center shadow-xs">
+                  {keyLetter}
+                </span>
+              )}
+
+              {/* Nota Adı (C3, C4...) */}
               {showLabels && (key.noteName.startsWith('C') || key.midi === 60) && (
-                <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[10px] font-mono font-semibold tracking-tighter opacity-70">
+                <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-mono font-bold opacity-60">
                   {key.noteName}
                 </span>
               )}
 
-              {/* Bekleme hedef noktası */}
               {isWaiting && (
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-600 animate-ping" />
+                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
               )}
             </div>
           );
@@ -102,6 +106,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         {blackKeys.map((key) => {
           const active = activeNotes.get(key.midi);
           const isWaiting = waitingMidiSet.has(key.midi);
+          const keyLetter = showKeyBindings ? midiManager.getKeyForMidi(key.midi) : null;
 
           let prevWhiteIndex = 0;
           for (let m = key.midi - 1; m >= 21; m--) {
@@ -118,16 +123,16 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
           const leftPercent = (prevWhiteIndex + 0.68) * whiteKeyPercent;
           const widthPercent = whiteKeyPercent * 0.65;
 
-          let blackClass = 'bg-[#18191f] border-[#0e0f14] shadow-[0_4px_8px_rgba(0,0,0,0.7)]';
+          let blackBg = 'bg-[#15171e] border-[#0c0d12] shadow-md';
           if (isWaiting) {
-            blackClass = 'bg-amber-400 border-amber-600 shadow-[0_0_12px_#f59e0b]';
+            blackBg = 'bg-amber-400 border-amber-600 shadow-[0_0_10px_#f59e0b]';
           } else if (active) {
             if (active.source === 'user') {
-              blackClass = 'bg-indigo-500 border-indigo-700 shadow-[0_0_10px_#6366f1]';
+              blackBg = 'bg-indigo-500 border-indigo-700 shadow-[0_0_8px_#6366f1]';
             } else if (active.hand === 'left') {
-              blackClass = 'bg-blue-500 border-blue-700 shadow-[0_0_10px_#3b82f6]';
+              blackBg = 'bg-sky-500 border-sky-700 shadow-[0_0_8px_#0ea5e9]';
             } else {
-              blackClass = 'bg-emerald-500 border-emerald-700 shadow-[0_0_10px_#10b981]';
+              blackBg = 'bg-emerald-500 border-emerald-700 shadow-[0_0_8px_#10b981]';
             }
           }
 
@@ -139,7 +144,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
               onMouseLeave={() => onNoteRelease?.(key.midi)}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); onNotePress?.(key.midi); }}
               onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onNoteRelease?.(key.midi); }}
-              className={`absolute top-0 h-[64%] rounded-b-[3px] border cursor-pointer z-20 transition-[transform,background-color] duration-75 ${blackClass} ${
+              className={`absolute top-0 h-[64%] rounded-b-[2px] border cursor-pointer z-20 transition-all duration-75 flex flex-col justify-end items-center pb-1 ${blackBg} ${
                 active ? 'translate-y-[2px]' : ''
               }`}
               style={{
@@ -147,11 +152,14 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                 width: `${widthPercent}%`,
               }}
             >
-              {/* Siyah tuş üst mat fırçalı çizgisi */}
-              <div className="absolute top-1 left-0.5 right-0.5 h-[1px] bg-white/10 rounded-full" />
+              {keyLetter && (
+                <span className="w-3.5 h-3.5 rounded bg-zinc-800 text-[8px] font-mono font-bold text-amber-300 flex items-center justify-center border border-zinc-700">
+                  {keyLetter}
+                </span>
+              )}
 
               {isWaiting && (
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-zinc-950 animate-ping" />
+                <div className="w-1.5 h-1.5 rounded-full bg-zinc-950 animate-ping mb-1" />
               )}
             </div>
           );
