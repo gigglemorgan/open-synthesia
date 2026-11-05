@@ -1,11 +1,51 @@
 /**
  * MidiParser.ts
- * MIDI Dosyası Çözümleyici & El Ayrımı (Sağ El / Sol El)
+ * MIDI Dosyası Çözümleyici, Akıllı El Ayrımı & Otomatik BPM Tespiti
  */
 
 import { Midi } from '@tonejs/midi';
 import { VisualNote, LoadedSong } from '../types';
 import { midiToNoteName } from '../audio/PianoEngine';
+
+export function detectBpmFromNoteTimings(times: number[]): number {
+  if (times.length < 4) return 120;
+
+  const sorted = [...times].sort((a, b) => a - b);
+  const intervals: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const dt = sorted[i] - sorted[i - 1];
+    if (dt > 0.07 && dt < 2.2) {
+      intervals.push(dt);
+    }
+  }
+
+  if (intervals.length === 0) return 120;
+
+  let bestBpm = 120;
+  let maxScore = -1;
+
+  for (let bpm = 50; bpm <= 200; bpm += 2) {
+    const beatInterval = 60 / bpm;
+    let score = 0;
+
+    for (const dt of intervals) {
+      for (const mult of [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]) {
+        const target = beatInterval * mult;
+        const diff = Math.abs(dt - target);
+        if (diff < 0.035) {
+          score += 1 - diff / 0.035;
+        }
+      }
+    }
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestBpm = bpm;
+    }
+  }
+
+  return bestBpm;
+}
 
 export class MidiParser {
   /**
@@ -16,19 +56,16 @@ export class MidiParser {
     const rawBytes = data instanceof Uint8Array ? data : new Uint8Array(data);
 
     const notes: VisualNote[] = [];
-    const bpm = midi.header.tempos.length > 0 ? Math.round(midi.header.tempos[0].bpm) : 120;
     const duration = midi.duration || 10;
     const title = midi.name || filename.replace(/\.[^/.]+$/, "") || 'İsimsiz Eser';
 
     const trackCount = midi.tracks.length;
     let noteIdCounter = 0;
 
-    // Detect if multi-track piano (e.g. Track 0 = Right Hand, Track 1 = Left Hand)
     const activeTracks = midi.tracks.filter(t => t.notes.length > 0);
     const isSeparatedTracks = activeTracks.length >= 2;
 
     midi.tracks.forEach((track, trackIndex) => {
-      // Find average pitch of track to decide default hand if multi-track
       let avgPitch = 60;
       if (track.notes.length > 0) {
         avgPitch = track.notes.reduce((sum, n) => sum + n.midi, 0) / track.notes.length;
@@ -38,17 +75,14 @@ export class MidiParser {
         let hand: 'left' | 'right' = 'right';
 
         if (isSeparatedTracks) {
-          // If tracks are distinct, lower average pitch track is Left Hand
           if (avgPitch < 58) {
             hand = 'left';
           } else if (avgPitch > 62) {
             hand = 'right';
           } else {
-            // Tie-break based on note pitch
             hand = note.midi < 60 ? 'left' : 'right';
           }
         } else {
-          // Single track: Split at Middle C (MIDI 60)
           hand = note.midi < 60 ? 'left' : 'right';
         }
 
@@ -66,8 +100,15 @@ export class MidiParser {
       });
     });
 
-    // Sort notes chronologically
     notes.sort((a, b) => a.time - b.time);
+
+    // Otomatik BPM tespiti: MIDI header'da varsa onu al, yoksa zamanlamalardan analiz et
+    let bpm = 120;
+    if (midi.header.tempos.length > 0 && midi.header.tempos[0].bpm > 0) {
+      bpm = Math.round(midi.header.tempos[0].bpm);
+    } else {
+      bpm = detectBpmFromNoteTimings(notes.map(n => n.time));
+    }
 
     return {
       metadata: {

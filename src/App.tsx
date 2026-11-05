@@ -18,6 +18,7 @@ import { SAMPLE_SONGS } from './data/sampleSongs';
 import { pianoEngine } from './audio/PianoEngine';
 import { midiManager } from './midi/MidiManager';
 import { PracticeEngine } from './engine/PracticeEngine';
+import { detectBpmFromNoteTimings } from './midi/MidiParser';
 
 // Components
 import { Navbar } from './components/Navbar';
@@ -40,6 +41,7 @@ export const App: React.FC = () => {
   const [hand, setHand] = useState<HandSelection>('both');
   const [tempo, setTempo] = useState<number>(1.0);
   const [noteSpeed, setNoteSpeed] = useState<number>(2.5);
+  const [volume, setVolume] = useState<number>(0.85);
   const [loopStart, setLoopStart] = useState<number | null>(null);
   const [loopEnd, setLoopEnd] = useState<number | null>(null);
 
@@ -317,6 +319,25 @@ export const App: React.FC = () => {
     pianoEngine.stopAllNotes();
   }, [currentSong]);
 
+  // Master Volume handler
+  const handleVolumeChange = useCallback((newVol: number) => {
+    setVolume(newVol);
+    pianoEngine.setMasterVolume(newVol);
+  }, []);
+
+  // Auto Detect BPM handler
+  const handleAutoDetectBpm = useCallback(() => {
+    if (currentSong.notes.length < 4) return;
+    const detected = detectBpmFromNoteTimings(currentSong.notes.map(n => n.time));
+    setCurrentSong((prev) => ({
+      ...prev,
+      metadata: {
+        ...prev.metadata,
+        bpm: detected,
+      }
+    }));
+  }, [currentSong]);
+
   // On-screen Keyboard click
   const handleScreenNotePress = useCallback((midi: number) => {
     pianoEngine.playNote(midi, 0.85);
@@ -401,12 +422,15 @@ export const App: React.FC = () => {
         isPlaying={isPlaying}
         currentTime={currentTime}
         duration={currentSong.metadata.duration}
+        bpm={currentSong.metadata.bpm}
         mode={mode}
         hand={hand}
         tempo={tempo}
         noteSpeed={noteSpeed}
         loopStart={loopStart}
         loopEnd={loopEnd}
+        volume={volume}
+        onVolumeChange={handleVolumeChange}
         onPlayPause={handlePlayPause}
         onRewind={handleRewind}
         onSeek={handleSeek}
@@ -417,6 +441,7 @@ export const App: React.FC = () => {
         onSetLoopA={() => setLoopStart(currentTime)}
         onSetLoopB={() => setLoopEnd(currentTime)}
         onClearLoop={() => { setLoopStart(null); setLoopEnd(null); }}
+        onAutoDetectBpm={handleAutoDetectBpm}
       />
 
       {/* MODALLER */}

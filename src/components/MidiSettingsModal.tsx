@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Cpu, CheckCircle2, Keyboard, Disc } from 'lucide-react';
+import { X, Cpu, CheckCircle2, Keyboard, Disc3 } from 'lucide-react';
 import { MidiDevice } from '../types';
 import { midiManager } from '../midi/MidiManager';
 
@@ -43,69 +43,66 @@ export const MidiSettingsModal: React.FC<MidiSettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-[#141722] border border-[#262c42] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-md bg-[#111218] border border-[#232738] rounded-xl shadow-2xl overflow-hidden flex flex-col font-sans">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[#262c42] flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-              <Cpu className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white">MIDI Klavye & Pedal Ayarları</h2>
-              <p className="text-xs text-gray-400">Web MIDI API donanım bağlantısı</p>
-            </div>
+        <div className="px-5 py-3.5 border-b border-[#202436] flex items-center justify-between bg-[#0d0e14]">
+          <div className="flex items-center space-x-2">
+            <Cpu className="w-4 h-4 text-indigo-400" />
+            <h2 className="text-xs font-mono font-bold text-zinc-100 uppercase tracking-wider">
+              MIDI Aygıtı & Pedal Yönetimi
+            </h2>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#1e2334] transition-colors"
+            className="p-1 rounded text-zinc-400 hover:text-white hover:bg-[#1a1d2c] transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* İçerik */}
-        <div className="p-6 space-y-6">
+        {/* Content */}
+        <div className="p-5 space-y-4">
           {/* Cihaz Seçimi */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Bağlı MIDI Cihazları
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+              Kullanılabilir Girişler
             </label>
 
             {devices.length === 0 ? (
-              <div className="p-4 rounded-xl bg-[#1b2030] border border-[#272e45] text-center space-y-2">
-                <p className="text-sm text-gray-300 font-medium">Bağlı MIDI klavye algılanmadı.</p>
-                <p className="text-xs text-gray-500">
-                  USB veya Bluetooth MIDI klavyenizi bağlayın. (Tarayıcı izin istediğinde 'İzin Ver' seçiniz).
+              <div className="p-4 rounded-lg bg-[#0e1017] border border-[#202436] text-center space-y-1.5">
+                <p className="text-xs text-zinc-300 font-medium">Bağlı donanım algılanmadı.</p>
+                <p className="text-[11px] text-zinc-500">
+                  USB veya Bluetooth MIDI klavyenizi bağlayıp sayfayı yenileyebilirsiniz.
                 </p>
-                <div className="pt-2">
-                  <span className="inline-block px-3 py-1 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded-full text-xs">
-                    Bilgisayar klavyesiyle çalmaya devam edebilirsiniz!
+                <div className="pt-1">
+                  <span className="inline-block px-2.5 py-0.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded text-[11px] font-mono">
+                    Bilgisayar klavyesiyle çalmaya hazır
                   </span>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {devices.map((d) => {
                   const isSelected = activeDevice?.id === d.id;
                   return (
                     <div
                       key={d.id}
                       onClick={() => onSelectDevice(d.id)}
-                      className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                      className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-all ${
                         isSelected
-                          ? 'bg-emerald-500/15 border-emerald-500/50 shadow-md'
-                          : 'bg-[#181b28] border-[#252a3d] hover:bg-[#1f2334]'
+                          ? 'bg-emerald-500/15 border-emerald-500/50 shadow-sm'
+                          : 'bg-[#0e1017] border-[#202436] hover:bg-[#161822]'
                       }`}
                     >
-                      <div className="flex items-center space-x-3">
-                        <Disc className={`w-5 h-5 ${isSelected ? 'text-emerald-400 animate-spin' : 'text-gray-400'}`} />
+                      <div className="flex items-center space-x-2.5">
+                        <Disc3 className={`w-4 h-4 ${isSelected ? 'text-emerald-400 animate-spin' : 'text-zinc-500'}`} />
                         <div>
-                          <h4 className="text-sm font-bold text-white">{d.name}</h4>
-                          <p className="text-xs text-gray-400">{d.manufacturer}</p>
+                          <h4 className="text-xs font-semibold text-zinc-100">{d.name}</h4>
+                          <p className="text-[10px] font-mono text-zinc-500">{d.manufacturer}</p>
                         </div>
                       </div>
-                      {isSelected && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+                      {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                     </div>
                   );
                 })}
@@ -113,45 +110,45 @@ export const MidiSettingsModal: React.FC<MidiSettingsModalProps> = ({
             )}
           </div>
 
-          {/* Sustain Pedal & Tuş Canlı Testi */}
-          <div className="p-4 rounded-xl bg-[#181b28] border border-[#252a3d] space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Canlı Donanım Giriş Testi
+          {/* Pedal & Tuş Canlı Testi */}
+          <div className="p-3.5 rounded-lg bg-[#0e1017] border border-[#202436] space-y-2">
+            <h4 className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+              Canlı Sinyal Monitörü
             </h4>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2.5">
               {/* Sustain Pedal Durumu */}
-              <div className={`p-3 rounded-xl border flex flex-col items-center justify-center transition-all ${
+              <div className={`p-2.5 rounded border flex flex-col items-center justify-center font-mono transition-all ${
                 sustainPedalActive
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-[0_0_15px_#f59e0b]'
-                  : 'bg-[#131520] border-[#24293c] text-gray-400'
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-[0_0_10px_#f59e0b]'
+                  : 'bg-[#090a0f] border-[#1d2030] text-zinc-500'
               }`}>
-                <span className="text-xs font-medium">Sustain Pedalı (CC 64)</span>
-                <span className="text-base font-extrabold mt-1">
-                  {sustainPedalActive ? 'BASILI (AKTİF)' : 'Bırakıldı'}
+                <span className="text-[10px]">PEDAL (CC 64)</span>
+                <span className="text-xs font-bold mt-0.5">
+                  {sustainPedalActive ? 'DOWN (ON)' : 'UP (OFF)'}
                 </span>
               </div>
 
               {/* Son Basılan Nota */}
-              <div className="p-3 rounded-xl bg-[#131520] border border-[#24293c] flex flex-col items-center justify-center text-gray-300">
-                <span className="text-xs font-medium text-gray-400">Son Basılan Nota</span>
-                <span className="text-base font-extrabold text-indigo-400 mt-1">
-                  {lastTestedNote !== null ? `MIDI ${lastTestedNote}` : 'Bekleniyor...'}
+              <div className="p-2.5 rounded bg-[#090a0f] border border-[#1d2030] flex flex-col items-center justify-center font-mono text-zinc-300">
+                <span className="text-[10px] text-zinc-500">SON NOTA</span>
+                <span className="text-xs font-bold text-indigo-400 mt-0.5">
+                  {lastTestedNote !== null ? `MIDI ${lastTestedNote}` : '--'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Klavye Kısayolları Bilgisi */}
-          <div className="p-4 rounded-xl bg-[#11131c] border border-[#23283b] space-y-2">
-            <div className="flex items-center space-x-2 text-xs font-bold text-gray-300">
-              <Keyboard className="w-4 h-4 text-indigo-400" />
-              <span>Bilgisayar Klavyesi Eşlemesi:</span>
+          {/* Klavye Kısayolları */}
+          <div className="p-3 rounded-lg bg-[#0a0b10] border border-[#1d2030] space-y-1.5 font-mono text-[11px] text-zinc-400">
+            <div className="flex items-center space-x-1.5 text-zinc-300 font-semibold">
+              <Keyboard className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Klavye Tuşları:</span>
             </div>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              <strong className="text-gray-200">Beyaz Tuşlar:</strong> Q, W, E, R, T, Y, U, I, O, P (ve alt oktav için Z, X, C, V...)<br />
-              <strong className="text-gray-200">Siyah Tuşlar:</strong> 2, 3, 5, 6, 7...<br />
-              <strong className="text-amber-400">Sustain Pedalı:</strong> Boşluk (Spacebar) tuşuna basılı tutarak uzatabilirsiniz!
+            <p className="leading-relaxed">
+              <strong className="text-zinc-200">Beyaz Tuşlar:</strong> Q, W, E, R, T, Y, U, I, O, P (Z, X, C, V...)<br />
+              <strong className="text-zinc-200">Siyah Tuşlar:</strong> 2, 3, 5, 6, 7...<br />
+              <strong className="text-amber-400">Sustain Pedalı:</strong> Boşluk (Spacebar) tuşuna basılı tutun
             </p>
           </div>
         </div>

@@ -1,18 +1,17 @@
 /**
  * PianoEngine.ts
- * Gerçekçi Akustik Piyano Ses Motoru
- * - Yüksek kaliteli SoundFont örnekleri (FluidR3 / Salamander acoustic grand piano)
- * - Çevrimdışı/Hızlı hibrit akustik sentezleyici yedeği
- * - Gerçekçi Sustain Pedalı (CC 64) sönümleme ve rezonans simülasyonu
- * - OfflineAudioContext ile yüksek hızlı MP3/WAV render desteği
+ * Profesyonel Akustik Piyano Ses Motoru
+ * - Anti-Clipping: Stüdyo Tipi Dinamik Kompresör & Tanh Yumuşak Kırpıcı (Soft-Clipper Limiter)
+ * - Polifoni ve Sönümleme Yönetimi (Aşırı ses yüklenmesini ve patlamayı önler)
+ * - Ayarlanabilir Ana Ses Seviyesi (Master Volume)
+ * - Mikro rampa yumuşatma (Tıklama ve patlama önleyici)
+ * - Gerçekçi Sustain Pedalı (CC 64)
  */
 
-// Note to Frequency helper
 export function midiToFrequency(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
-// MIDI note number to Note Name (e.g. 60 -> C4)
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export function midiToNoteName(midi: number): string {
@@ -23,14 +22,19 @@ export function midiToNoteName(midi: number): string {
 
 export class PianoEngine {
   private ctx: AudioContext | null = null;
+  private preMasterGain: GainNode | null = null;
   private masterGain: GainNode | null = null;
+  private compressorNode: DynamicsCompressorNode | null = null;
+  private limiterNode: WaveShaperNode | null = null;
   private reverbNode: ConvolverNode | null = null;
+  private reverbGain: GainNode | null = null;
+
   private soundfontBuffers: Map<number, AudioBuffer> = new Map();
   private isSoundfontLoaded = false;
   private loadingProgress = 0;
   private onProgressCallback?: (progress: number) => void;
 
-  // Active playing nodes: midi -> { source, gain, releaseFn, isPedalHeld }
+  // Active playing voices
   private activeVoices: Map<number, {
     stop: (decayTime?: number) => void;
     isUserHeld: boolean;
@@ -38,9 +42,10 @@ export class PianoEngine {
 
   // Sustain Pedal State
   private sustainPedal = false;
+  private masterVolume = 0.8; // 0.0 - 1.0
 
   constructor() {
-    // AudioContext will be initialized on user interaction to comply with browser autoplay policy
+    // Lazy AudioContext init
   }
 
   public async initAudio(): Promise<void> {
@@ -48,25 +53,61 @@ export class PianoEngine {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
 
-      // Master gain
+      // 1. Pre-Master (toplayıcı)
+      this.preMasterGain = this.ctx.createGain();
+      this.preMasterGain.gain.setValueAtTime(0.7, this.ctx.currentTime);
+
+      // 2. Reverb Bus
+      this.reverbNode = this.createImpulseReverb(this.ctx, 1.6, 2.4);
+      this.reverbGain = this.ctx.createGain();
+      this.reverbGain.gain.setValueAtTime(0.18, this.ctx.currentTime);
+
+      this.preMasterGain.connect(this.reverbGain);
+      this.reverbGain.connect(this.reverbNode);
+
+      // 3. Master Volume (Kullanıcı ses ayarı)
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(this.masterVolume, this.ctx.currentTime);
 
-      // Create warm room reverb impulse
-      this.reverbNode = this.createImpulseReverb(this.ctx, 1.8, 2.0);
-      
-      const reverbGain = this.ctx.createGain();
-      reverbGain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+      // 4. Stüdyo Kompresörü / Limiter (Patlamaları kesinlikle engeller)
+      this.compressorNode = this.ctx.createDynamicsCompressor();
+      this.compressorNode.threshold.setValueAtTime(-14, this.ctx.currentTime);
+      this.compressorNode.knee.setValueAtTime(10, this.ctx.currentTime);
+      this.compressorNode.ratio.setValueAtTime(12, this.ctx.currentTime); // Soft brickwall
+      this.compressorNode.attack.setValueAtTime(0.003, this.ctx.currentTime);
+      this.compressorNode.release.setValueAtTime(0.18, this.ctx.currentTime);
 
-      this.masterGain.connect(this.ctx.destination);
-      this.masterGain.connect(reverbGain);
-      reverbGain.connect(this.reverbNode);
-      this.reverbNode.connect(this.ctx.destination);
+      // 5. Yumuşak Doyum Kırpıcı (Tanh Waveshaper - 0 dBFS üzerinde dijital çatlamayı analog sıcaklığa çevirir)
+      this.limiterNode = this.createSoftClipper(this.ctx);
+
+      // Sinyal Akışı:
+      // PreMaster + Reverb -> MasterGain -> Compressor -> Limiter -> Destination
+      this.preMasterGain.connect(this.masterGain);
+      this.reverbNode.connect(this.masterGain);
+
+      this.masterGain.connect(this.compressorNode);
+      this.compressorNode.connect(this.limiterNode);
+      this.limiterNode.connect(this.ctx.destination);
     }
 
     if (this.ctx.state === 'suspended') {
       await this.ctx.resume();
     }
+  }
+
+  /**
+   * Ses Seviyesi (0.0 - 1.0)
+   */
+  public setMasterVolume(val: number): void {
+    this.masterVolume = Math.max(0, Math.min(1.0, val));
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.masterGain.gain.linearRampToValueAtTime(this.masterVolume, this.ctx.currentTime + 0.05);
+    }
+  }
+
+  public getMasterVolume(): number {
+    return this.masterVolume;
   }
 
   public setProgressCallback(cb: (p: number) => void) {
@@ -82,8 +123,7 @@ export class PianoEngine {
   }
 
   /**
-   * SoundFont yüklemesi (FluidR3 GM Acoustic Grand Piano)
-   * Yüksek kaliteli gerçek piyano sesleri
+   * SoundFont Yüklemesi
    */
   public async loadSoundfont(): Promise<void> {
     if (this.isSoundfontLoaded) return;
@@ -93,13 +133,10 @@ export class PianoEngine {
       this.loadingProgress = 10;
       this.onProgressCallback?.(10);
 
-      // Use MusyngKite / FluidR3 high quality mp3 soundfont
       const url = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/acoustic_grand_piano-mp3.js';
-      
       const response = await fetch(url);
       const text = await response.text();
-      
-      // JSONP format extract: MIDI.Soundfont.acoustic_grand_piano = {...}
+
       const jsonStart = text.indexOf('{');
       const jsonEnd = text.lastIndexOf('}');
       if (jsonStart === -1 || jsonEnd === -1) {
@@ -122,7 +159,7 @@ export class PianoEngine {
             this.soundfontBuffers.set(midi, audioBuffer);
           }
         } catch {
-          // Continue on sample decode error
+          // Ignore failed sample
         }
         loaded++;
         const progress = Math.round(10 + (loaded / total) * 90);
@@ -132,8 +169,7 @@ export class PianoEngine {
 
       this.isSoundfontLoaded = true;
     } catch (err) {
-      console.warn('Soundfont CDN yüklemesi başarısız oldu, hibrit akustik sentezleyici devrede:', err);
-      // Fallback to high-fidelity acoustic physical modeling
+      console.warn('Soundfont CDN yüklemesi başarısız, akustik sentezleyici devrede:', err);
       this.isSoundfontLoaded = false;
       this.onProgressCallback?.(100);
     }
@@ -144,10 +180,10 @@ export class PianoEngine {
   }
 
   /**
-   * Note On (Piyano tuşuna basıldığında)
+   * Note On: Tıklama ve aşırı ses patlamasını önleyen akıllı kazanç
    */
   public playNote(midi: number, velocity: number = 0.8, timeOffset: number = 0): void {
-    if (!this.ctx || !this.masterGain) {
+    if (!this.ctx || !this.preMasterGain) {
       this.initAudio().then(() => this.playNote(midi, velocity, timeOffset));
       return;
     }
@@ -155,34 +191,45 @@ export class PianoEngine {
     const now = this.ctx.currentTime + Math.max(0, timeOffset);
     const clampedVelocity = Math.max(0.1, Math.min(1.0, velocity));
 
-    // Stop existing note if already playing
-    this.stopNote(midi, 0.05, false);
+    // Polifoni koruması: Çok fazla ses açıksa en eskiyi yumuşakça söndür
+    if (this.activeVoices.size > 28) {
+      const oldestKey = this.activeVoices.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.stopNote(oldestKey, 0.08, true);
+      }
+    }
+
+    // Stop existing note cleanly
+    this.stopNote(midi, 0.04, false);
 
     if (this.soundfontBuffers.has(midi)) {
-      // High fidelity sampled acoustic piano note
       const buffer = this.soundfontBuffers.get(midi)!;
       const source = this.ctx.createBufferSource();
       source.buffer = buffer;
 
       const gain = this.ctx.createGain();
-      // Natural velocity curves
-      const vol = Math.pow(clampedVelocity, 1.3) * 1.2;
-      gain.gain.setValueAtTime(vol, now);
+      // Kalibre edilmiş ses kazancı (0.35 max ile çoklu notalarda patlamayı önler)
+      const targetGain = Math.pow(clampedVelocity, 1.4) * 0.38;
+
+      // Click/Pop önleyici mikro rampa (0.004s)
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(targetGain, now + 0.004);
 
       source.connect(gain);
-      gain.connect(this.masterGain);
+      gain.connect(this.preMasterGain);
 
       source.start(now);
 
       const stopFn = (decayTime: number = 0.35) => {
         try {
-          const stopTime = this.ctx!.currentTime;
+          if (!this.ctx) return;
+          const stopTime = this.ctx.currentTime;
           gain.gain.cancelScheduledValues(stopTime);
-          gain.gain.setValueAtTime(gain.gain.value, stopTime);
+          gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), stopTime);
           gain.gain.exponentialRampToValueAtTime(0.0001, stopTime + decayTime);
-          source.stop(stopTime + decayTime + 0.05);
+          source.stop(stopTime + decayTime + 0.04);
         } catch {
-          // Node already stopped
+          // Voice already closed
         }
       };
 
@@ -191,21 +238,20 @@ export class PianoEngine {
         isUserHeld: true
       });
     } else {
-      // Rich acoustic piano synthesis with multi-harmonics & hammer strike transient
+      // Hibrit akustik piyano tel sentezi
       this.playAcousticSynthesizedNote(midi, clampedVelocity, now);
     }
   }
 
   /**
-   * Note Off (Piyano tuşu bırakıldığında)
+   * Note Off: Sustain pedalı basılıysa bırakılan tuş sönümlenmez!
    */
-  public stopNote(midi: number, decayTime: number = 0.3, force: boolean = false): void {
+  public stopNote(midi: number, decayTime: number = 0.28, force: boolean = false): void {
     const voice = this.activeVoices.get(midi);
     if (!voice) return;
 
     voice.isUserHeld = false;
 
-    // If sustain pedal is currently pressed down and not forced, keep ringing!
     if (this.sustainPedal && !force) {
       return;
     }
@@ -215,14 +261,12 @@ export class PianoEngine {
   }
 
   /**
-   * Sustain Pedal (Damper Pedal CC 64)
-   * value: 0 - 127 (>= 64 down, < 64 up)
+   * Sustain Pedal (Damper CC 64)
    */
   public setSustainPedal(isDown: boolean): void {
     this.sustainPedal = isDown;
 
     if (!isDown) {
-      // Pedal released: damp all notes that are no longer physically held by keys
       const toRemove: number[] = [];
       this.activeVoices.forEach((voice, midi) => {
         if (!voice.isUserHeld) {
@@ -239,87 +283,62 @@ export class PianoEngine {
   }
 
   public stopAllNotes(): void {
-    this.activeVoices.forEach(v => v.stop(0.1));
+    this.activeVoices.forEach(v => v.stop(0.08));
     this.activeVoices.clear();
   }
 
   /**
-   * Rich Physical Acoustic Grand Piano Synthesizer
+   * Yumuşak Akustik Sentezleyici (Patlama önleyici kalibrasyon)
    */
   private playAcousticSynthesizedNote(midi: number, velocity: number, startTime: number): void {
-    if (!this.ctx || !this.masterGain) return;
+    if (!this.ctx || !this.preMasterGain) return;
 
     const freq = midiToFrequency(midi);
-    const duration = 4.0;
+    const duration = 3.5;
 
-    // Fundamental + Rich Piano Harmonics (Overtone Series)
     const osc1 = this.ctx.createOscillator();
     const osc2 = this.ctx.createOscillator();
-    const osc3 = this.ctx.createOscillator();
-
-    // Subtle detuning for natural string chorus
     osc1.type = 'triangle';
     osc1.frequency.setValueAtTime(freq, startTime);
 
     osc2.type = 'sine';
     osc2.frequency.setValueAtTime(freq * 2, startTime);
-    osc2.detune.setValueAtTime(3.5, startTime);
+    osc2.detune.setValueAtTime(2.5, startTime);
 
-    osc3.type = 'sine';
-    osc3.frequency.setValueAtTime(freq * 3, startTime);
-    osc3.detune.setValueAtTime(-2.8, startTime);
-
-    // Hammer attack transient (percussive strike)
-    const hammerBuffer = this.createHammerNoise(this.ctx);
-    const hammerSource = this.ctx.createBufferSource();
-    hammerSource.buffer = hammerBuffer;
-
-    const hammerGain = this.ctx.createGain();
-    hammerGain.gain.setValueAtTime(0.4 * velocity, startTime);
-    hammerGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.04);
-    hammerSource.connect(hammerGain);
-    hammerGain.connect(this.masterGain);
-
-    // Dynamic low-pass acoustic resonance filter
+    // Dynamic lowpass
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    const cutoff = Math.min(14000, freq * 8 * velocity);
+    const cutoff = Math.min(10000, freq * 6 * velocity);
     filter.frequency.setValueAtTime(cutoff, startTime);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(200, freq * 1.5), startTime + 2.5);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(180, freq * 1.2), startTime + 2.0);
 
-    // Amplitude envelope
     const ampGain = this.ctx.createGain();
-    const peakGain = 0.5 * Math.pow(velocity, 1.4);
+    const peakGain = 0.22 * Math.pow(velocity, 1.3);
+
     ampGain.gain.setValueAtTime(0.0001, startTime);
-    ampGain.gain.linearRampToValueAtTime(peakGain, startTime + 0.006); // Fast strike
-    // Natural piano exponential decay
-    ampGain.gain.exponentialRampToValueAtTime(peakGain * 0.4, startTime + 0.5);
+    ampGain.gain.linearRampToValueAtTime(peakGain, startTime + 0.005);
+    ampGain.gain.exponentialRampToValueAtTime(peakGain * 0.35, startTime + 0.4);
     ampGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
-    // Route audio
     osc1.connect(filter);
     osc2.connect(filter);
-    osc3.connect(filter);
     filter.connect(ampGain);
-    ampGain.connect(this.masterGain);
+    ampGain.connect(this.preMasterGain);
 
     osc1.start(startTime);
     osc2.start(startTime);
-    osc3.start(startTime);
-    hammerSource.start(startTime);
 
-    const stopFn = (decayTime: number = 0.3) => {
+    const stopFn = (decayTime: number = 0.25) => {
       try {
-        const now = this.ctx!.currentTime;
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
         ampGain.gain.cancelScheduledValues(now);
-        ampGain.gain.setValueAtTime(ampGain.gain.value, now);
+        ampGain.gain.setValueAtTime(Math.max(0.0001, ampGain.gain.value), now);
         ampGain.gain.exponentialRampToValueAtTime(0.0001, now + decayTime);
-        const killTime = now + decayTime + 0.05;
-        osc1.stop(killTime);
-        osc2.stop(killTime);
-        osc3.stop(killTime);
+        osc1.stop(now + decayTime + 0.04);
+        osc2.stop(now + decayTime + 0.04);
       } catch {
-        // Already stopped
+        // Voice closed
       }
     };
 
@@ -330,12 +349,31 @@ export class PianoEngine {
   }
 
   /**
-   * Concert Hall Reverb Impulse Generator
+   * Analog Tanh Soft-Clipper Curve
    */
-  private createImpulseReverb(ctx: BaseAudioContext, duration = 1.8, decay = 2.0): ConvolverNode {
+  private createSoftClipper(ctx: AudioContext): WaveShaperNode {
+    const shaper = ctx.createWaveShaper();
+    const n = 4096;
+    const curve = new Float32Array(n);
+
+    for (let i = 0; i < n; i++) {
+      const x = (i * 2) / n - 1;
+      // Hyperbolic tangent soft clip
+      curve[i] = Math.tanh(x * 1.15);
+    }
+
+    shaper.curve = curve;
+    shaper.oversample = '2x';
+    return shaper;
+  }
+
+  /**
+   * Concert Reverb Impulse
+   */
+  private createImpulseReverb(ctx: BaseAudioContext, duration = 1.6, decay = 2.4): ConvolverNode {
     const convolver = ctx.createConvolver();
     const rate = ctx.sampleRate;
-    const length = rate * duration;
+    const length = Math.floor(rate * duration);
     const impulse = ctx.createBuffer(2, length, rate);
     const left = impulse.getChannelData(0);
     const right = impulse.getChannelData(1);
@@ -349,19 +387,6 @@ export class PianoEngine {
 
     convolver.buffer = impulse;
     return convolver;
-  }
-
-  /**
-   * Per-key hammer noise buffer
-   */
-  private createHammerNoise(ctx: BaseAudioContext): AudioBuffer {
-    const length = Math.floor(ctx.sampleRate * 0.04);
-    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < length; i++) {
-      data[i] = (Math.random() * 2 - 1) * (1 - i / length);
-    }
-    return buffer;
   }
 
   private base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -389,7 +414,7 @@ export class PianoEngine {
   }
 
   /**
-   * Render MIDI notes offline to an AudioBuffer for instant MP3 export
+   * Offline Rendering for MP3
    */
   public async renderNotesToAudioBuffer(
     notes: { midi: number; time: number; duration: number; velocity: number }[],
@@ -400,16 +425,24 @@ export class PianoEngine {
     const offlineCtx = new OfflineAudioContext(2, lengthInSamples, sampleRate);
 
     const master = offlineCtx.createGain();
-    master.gain.setValueAtTime(0.85, 0);
+    master.gain.setValueAtTime(0.7, 0);
 
-    const reverb = this.createImpulseReverb(offlineCtx, 1.5, 2.2);
+    const comp = offlineCtx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(-14, 0);
+    comp.knee.setValueAtTime(10, 0);
+    comp.ratio.setValueAtTime(12, 0);
+    comp.attack.setValueAtTime(0.003, 0);
+    comp.release.setValueAtTime(0.18, 0);
+
+    const reverb = this.createImpulseReverb(offlineCtx, 1.4, 2.4);
     const revGain = offlineCtx.createGain();
-    revGain.gain.setValueAtTime(0.2, 0);
+    revGain.gain.setValueAtTime(0.16, 0);
 
-    master.connect(offlineCtx.destination);
+    master.connect(comp);
     master.connect(revGain);
     revGain.connect(reverb);
-    reverb.connect(offlineCtx.destination);
+    reverb.connect(comp);
+    comp.connect(offlineCtx.destination);
 
     for (const note of notes) {
       const startTime = note.time;
@@ -418,14 +451,15 @@ export class PianoEngine {
       const velocity = Math.max(0.1, Math.min(1.0, note.velocity || 0.8));
 
       if (this.soundfontBuffers.has(midi)) {
-        // High quality soundfont sample
         const buf = this.soundfontBuffers.get(midi)!;
         const source = offlineCtx.createBufferSource();
         source.buffer = buf;
 
         const gain = offlineCtx.createGain();
-        gain.gain.setValueAtTime(Math.pow(velocity, 1.3) * 1.2, startTime);
-        gain.gain.setValueAtTime(Math.pow(velocity, 1.3) * 1.2, startTime + duration);
+        const targetGain = Math.pow(velocity, 1.4) * 0.38;
+        gain.gain.setValueAtTime(0.0001, startTime);
+        gain.gain.linearRampToValueAtTime(targetGain, startTime + 0.004);
+        gain.gain.setValueAtTime(targetGain, startTime + duration);
         gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.35);
 
         source.connect(gain);
@@ -433,36 +467,28 @@ export class PianoEngine {
         source.start(startTime);
         source.stop(startTime + duration + 0.4);
       } else {
-        // Acoustic synthesis
         const freq = midiToFrequency(midi);
         const osc = offlineCtx.createOscillator();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(freq, startTime);
 
-        const osc2 = offlineCtx.createOscillator();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(freq * 2, startTime);
-        osc2.detune.setValueAtTime(3, startTime);
-
         const filter = offlineCtx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(Math.min(12000, freq * 7 * velocity), startTime);
+        filter.frequency.setValueAtTime(Math.min(9000, freq * 5 * velocity), startTime);
 
         const noteGain = offlineCtx.createGain();
+        const peakGain = 0.22 * Math.pow(velocity, 1.3);
         noteGain.gain.setValueAtTime(0.0001, startTime);
-        noteGain.gain.linearRampToValueAtTime(0.5 * velocity, startTime + 0.008);
-        noteGain.gain.exponentialRampToValueAtTime(0.5 * velocity * 0.4, startTime + Math.min(0.5, duration));
+        noteGain.gain.linearRampToValueAtTime(peakGain, startTime + 0.006);
+        noteGain.gain.exponentialRampToValueAtTime(peakGain * 0.35, startTime + Math.min(0.4, duration));
         noteGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.3);
 
         osc.connect(filter);
-        osc2.connect(filter);
         filter.connect(noteGain);
         noteGain.connect(master);
 
         osc.start(startTime);
-        osc2.start(startTime);
         osc.stop(startTime + duration + 0.35);
-        osc2.stop(startTime + duration + 0.35);
       }
     }
 
@@ -470,5 +496,4 @@ export class PianoEngine {
   }
 }
 
-// Singleton audio engine
 export const pianoEngine = new PianoEngine();

@@ -9,6 +9,7 @@
 import { VisualNote } from '../types';
 import { midiToNoteName } from '../audio/PianoEngine';
 import { MidiWriter } from '../midi/MidiWriter';
+import { detectBpmFromNoteTimings } from '../midi/MidiParser';
 
 export interface AudioToMidiResult {
   notes: VisualNote[];
@@ -152,8 +153,8 @@ export class AudioToMidiConverter {
     // Sort notes
     finishedNotes.sort((a, b) => a.time - b.time);
 
-    // Approximate BPM from note density / tempo
-    const detectedBpm = 120;
+    // Otomatik BPM tespiti (Inter-onset interval analizi)
+    const detectedBpm = detectBpmFromNoteTimings(finishedNotes.map(n => n.time));
 
     // Generate MIDI binary
     const midiBytes = MidiWriter.createMidiFromNotes(finishedNotes, detectedBpm, 'Audio Transcribed Track');

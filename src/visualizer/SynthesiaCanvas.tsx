@@ -1,15 +1,14 @@
 /**
  * SynthesiaCanvas.tsx
  * 60+ FPS Synthesia Şelale (Falling Notes) Görselleştirici
- * - Sol el (Mavi) ve Sağ el (Yeşil) renk ayrımı
- * - Gerçekçi tuş hizalaması ve parlama efektleri
- * - Tuşa basıldığında vuruş parçacıkları (particle burst)
- * - Bekleme modu hedef halkaları
+ * - Sol el (Kobalt Mavi) ve Sağ el (Zümrüt Yeşil)
+ * - Tuş şeritleri ve hassas nota hizalaması
+ * - Doğal vuruş parçacıkları ve temiz etüd göstergesi
  */
 
 import React, { useRef, useEffect, useCallback } from 'react';
 import { VisualNote, HandSelection } from '../types';
-import { getKeyBounds } from './pianoLayout';
+import { getKeyBounds, PIANO_KEYS_88 } from './pianoLayout';
 
 interface Particle {
   x: number;
@@ -25,7 +24,7 @@ interface Particle {
 interface SynthesiaCanvasProps {
   notes: VisualNote[];
   currentTime: number;
-  noteSpeed?: number; // Görünür zaman aralığı (saniye, varsayılan 2.5s)
+  noteSpeed?: number;
   isWaiting?: boolean;
   waitingNotes?: VisualNote[];
   handSelection?: HandSelection;
@@ -47,19 +46,19 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
 
   // Spawn hit particles
   const spawnHitParticles = useCallback((x: number, y: number, color: string) => {
-    const count = 12;
+    const count = 10;
     for (let i = 0; i < count; i++) {
-      const angle = (Math.PI / count) * i + Math.PI; // Upward burst
-      const speed = Math.random() * 3 + 2;
+      const angle = (Math.PI / count) * i + Math.PI;
+      const speed = Math.random() * 2.5 + 1.5;
       particlesRef.current.push({
         x,
         y,
-        vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 2,
-        vy: Math.sin(angle) * speed - 1.5,
-        radius: Math.random() * 3 + 1.5,
+        vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 1.5,
+        vy: Math.sin(angle) * speed - 1.0,
+        radius: Math.random() * 2 + 1,
         color,
-        alpha: 1.0,
-        decay: Math.random() * 0.03 + 0.02,
+        alpha: 0.9,
+        decay: Math.random() * 0.035 + 0.025,
       });
     }
   }, []);
@@ -94,7 +93,6 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
     if (!ctx) return;
 
     const render = () => {
-      // Resize handling for high-DPI displays
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
@@ -107,12 +105,21 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      // Background
-      ctx.fillStyle = '#0b0d13';
+      // Deep studio background
+      ctx.fillStyle = '#0a0b10';
       ctx.fillRect(0, 0, width, height);
 
-      // Subtle vertical lane dividers for octaves
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      // Subtle background piano lane shading (black key lanes slightly darker)
+      PIANO_KEYS_88.forEach((key) => {
+        if (key.isBlack) {
+          const bounds = getKeyBounds(key.midi);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+          ctx.fillRect(bounds.x * width, 0, bounds.width * width, height);
+        }
+      });
+
+      // Subtle octave dividers (C notes)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
       ctx.lineWidth = 1;
       for (let m = 24; m <= 108; m += 12) {
         const bounds = getKeyBounds(m);
@@ -124,32 +131,26 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
       }
 
       // Hit line at bottom
-      ctx.strokeStyle = isWaiting ? 'rgba(245, 158, 11, 0.8)' : 'rgba(99, 102, 241, 0.5)';
-      ctx.lineWidth = 2;
-      ctx.shadowColor = isWaiting ? '#f59e0b' : '#6366f1';
-      ctx.shadowBlur = isWaiting ? 15 : 6;
+      ctx.strokeStyle = isWaiting ? '#f59e0b' : 'rgba(99, 102, 241, 0.4)';
+      ctx.lineWidth = isWaiting ? 2.5 : 1.5;
       ctx.beginPath();
       ctx.moveTo(0, height - 2);
       ctx.lineTo(width, height - 2);
       ctx.stroke();
-      ctx.shadowBlur = 0; // Reset shadow
 
       // Render Falling Notes
       const visibleStart = currentTime - 0.2;
       const visibleEnd = currentTime + noteSpeed;
-
       const waitingIds = new Set(waitingNotes.map(n => n.id));
 
       for (let i = 0; i < notes.length; i++) {
         const note = notes[i];
         const noteEnd = note.time + note.duration;
 
-        // Skip notes outside visible window
         if (noteEnd < visibleStart || note.time > visibleEnd) {
           continue;
         }
 
-        // Hand filter check
         if (handSelection === 'right' && note.hand !== 'right') continue;
         if (handSelection === 'left' && note.hand !== 'left') continue;
 
@@ -157,56 +158,51 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
         const x = bounds.x * width + 1;
         const w = Math.max(3, bounds.width * width - 2);
 
-        // Calculate Y:
-        // note.time === currentTime means note bottom touches (height - 2)
         const yBottom = height - ((note.time - currentTime) / noteSpeed) * height;
         const yTop = height - ((noteEnd - currentTime) / noteSpeed) * height;
-        const noteHeight = Math.max(8, yBottom - yTop);
+        const noteHeight = Math.max(6, yBottom - yTop);
 
         const isCurrentlyWaiting = waitingIds.has(note.id);
 
         // Note Color Gradient
         const gradient = ctx.createLinearGradient(x, yTop, x, yBottom);
         if (note.hand === 'left') {
-          // Sol El: Mavi Tonları
-          gradient.addColorStop(0, '#2563eb');
-          gradient.addColorStop(1, '#60a5fa');
+          gradient.addColorStop(0, '#1d4ed8');
+          gradient.addColorStop(1, '#3b82f6');
         } else {
-          // Sağ El: Zümrüt Yeşili
-          gradient.addColorStop(0, '#059669');
-          gradient.addColorStop(1, '#34d399');
+          gradient.addColorStop(0, '#047857');
+          gradient.addColorStop(1, '#10b981');
         }
 
-        // Draw note rectangle with rounded corners
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        const radius = Math.min(4, w / 2);
+        const radius = Math.min(3, w / 2);
         ctx.roundRect(x, yTop, w, noteHeight, radius);
         ctx.fill();
 
-        // Border / Glow for active or waiting note
+        // Top highlight line for polished look
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(x + 1, yTop, Math.max(1, w - 2), 1.5);
+
+        // Waiting note highlight
         if (isCurrentlyWaiting) {
           ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 2.5;
-          ctx.shadowColor = '#f59e0b';
-          ctx.shadowBlur = 10;
+          ctx.lineWidth = 2;
           ctx.stroke();
-          ctx.shadowBlur = 0;
 
-          // Target Pulsing Ring at Hit Line
+          // Pulsing target dot at line
           ctx.strokeStyle = '#fbbf24';
           ctx.beginPath();
-          ctx.arc(x + w / 2, height - 2, (w / 2) + 4, 0, Math.PI * 2);
+          ctx.arc(x + w / 2, height - 2, Math.max(3, w / 2 + 3), 0, Math.PI * 2);
           ctx.stroke();
         } else if (note.time <= currentTime && noteEnd >= currentTime) {
-          // Currently playing note glow
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 1.2;
           ctx.stroke();
         }
       }
 
-      // Update & Draw Hit Particles
+      // Hit particles
       const particles = particlesRef.current;
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
@@ -222,8 +218,6 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
         ctx.save();
         ctx.globalAlpha = p.alpha;
         ctx.fillStyle = p.color;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 8;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -242,17 +236,17 @@ export const SynthesiaCanvas: React.FC<SynthesiaCanvasProps> = ({
   }, [notes, currentTime, noteSpeed, isWaiting, waitingNotes, handSelection]);
 
   return (
-    <div className="relative w-full flex-1 min-h-[300px] overflow-hidden bg-[#0b0d13]">
+    <div className="relative w-full flex-1 min-h-[300px] overflow-hidden bg-[#0a0b10]">
       <canvas
         ref={canvasRef}
         className="w-full h-full block"
       />
       {/* Waiting Indicator Banner */}
       {isWaiting && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 px-5 py-2.5 bg-amber-500/20 border border-amber-500/50 backdrop-blur-md rounded-full shadow-2xl flex items-center space-x-2 animate-bounce">
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
-          <span className="text-amber-300 font-semibold text-sm">
-            Etüd Bekleme: Sarı ile parlayan tuş(lar)a basmanız bekleniyor...
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-[#141620]/95 border border-amber-500/70 backdrop-blur-md rounded-md shadow-lg flex items-center space-x-2 font-mono text-xs">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span className="text-amber-300 font-semibold tracking-wide">
+            ETÜD: Tuşa basılması bekleniyor...
           </span>
         </div>
       )}
