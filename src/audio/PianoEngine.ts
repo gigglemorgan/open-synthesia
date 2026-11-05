@@ -324,9 +324,10 @@ export class PianoEngine {
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.linearRampToValueAtTime(targetGain, now + 0.003);
 
-    // Nota süresi boyunca tınlama ve doğal damper sönümlenmesi
-    const releaseStart = now + Math.max(0.1, duration);
-    const decayDuration = 0.35;
+    // Rush E / Yoğun Hızlı Notalar İçin Dinamik Sönümleme (Düğüm patlamasını önler)
+    const decayDuration = duration < 0.15 ? Math.max(0.06, duration * 1.1) : 0.3;
+    const releaseStart = now + Math.max(0.06, duration);
+
     gain.gain.setValueAtTime(targetGain, releaseStart);
     gain.gain.exponentialRampToValueAtTime(0.0001, releaseStart + decayDuration);
 
@@ -334,7 +335,22 @@ export class PianoEngine {
     gain.connect(this.preMasterGain);
 
     source.start(now);
-    source.stop(releaseStart + decayDuration + 0.05);
+    source.stop(releaseStart + decayDuration + 0.03);
+
+    // Maksimum eşzamanlı donanım düğüm sınırı (Rush E / Black MIDI ses motoru çökmesini önler)
+    if (this.scheduledNodes.size > 36) {
+      const oldest = this.scheduledNodes.values().next().value;
+      if (oldest) {
+        try {
+          oldest.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+          oldest.gain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+          oldest.source.stop(this.ctx.currentTime + 0.01);
+          this.scheduledNodes.delete(oldest);
+        } catch {
+          // Ignore
+        }
+      }
+    }
 
     const nodeRef = { source, gain };
     this.scheduledNodes.add(nodeRef);

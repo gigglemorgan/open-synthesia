@@ -92,6 +92,8 @@ export const App: React.FC = () => {
   const scheduledNoteIdsRef = useRef<Set<string>>(new Set());
   const lastFrameTimeRef = useRef<number>(0);
   const tempoRef = useRef<number>(tempo);
+  const audioCursorRef = useRef<number>(0);
+  const visualCursorRef = useRef<number>(0);
 
   isPlayingRef.current = isPlaying;
   currentTimeRef.current = currentTime;
@@ -127,6 +129,8 @@ export const App: React.FC = () => {
       setWaitingNotes(notes);
     });
     engine.subscribeLoopRestart(() => {
+      audioCursorRef.current = 0;
+      visualCursorRef.current = 0;
       scheduledNoteIdsRef.current.clear();
       pianoEngine.stopAllNotes();
     });
@@ -225,37 +229,48 @@ export const App: React.FC = () => {
           const scheduledIds = scheduledNoteIdsRef.current;
           const nowAudioTime = pianoEngine.getCurrentTime();
 
-          // 1. Lookahead Audio Scheduling (Donanım Saatiyle Mikro Saniye Hassasiyetinde Çalma)
-          // UI gecikmesi veya drop frame olsa bile Web Audio hardware thread'inde sıfır duraksama ile çalar!
-          for (let i = 0; i < currentSong.notes.length; i++) {
+          // 1. Lookahead Audio Scheduling (Rush E / Black MIDI O(1) Cursor Optimization)
+          // Geçmiş notaları atla
+          while (
+            audioCursorRef.current < currentSong.notes.length &&
+            currentSong.notes[audioCursorRef.current].time < currentT - 0.05
+          ) {
+            audioCursorRef.current++;
+          }
+
+          // Sadece gelecek 180ms penceresini tara ve donanım saatine çizelgele
+          for (let i = audioCursorRef.current; i < currentSong.notes.length; i++) {
             const n = currentSong.notes[i];
+            if (n.time > currentT + LOOKAHEAD_SEC) break;
 
-            // Gelecek 180ms içindeki henüz çizelgelenmemiş notalar
-            if (n.time >= currentT - 0.02 && n.time <= currentT + LOOKAHEAD_SEC) {
-              if (!scheduledIds.has(n.id)) {
-                const isTargetForUser = 
-                  engineConfig.mode === 'practice-wait' &&
-                  ((engineConfig.hand === 'both') ||
-                   (engineConfig.hand === 'right' && n.hand === 'right') ||
-                   (engineConfig.hand === 'left' && n.hand === 'left'));
+            if (!scheduledIds.has(n.id)) {
+              const isTargetForUser = 
+                engineConfig.mode === 'practice-wait' &&
+                ((engineConfig.hand === 'both') ||
+                 (engineConfig.hand === 'right' && n.hand === 'right') ||
+                 (engineConfig.hand === 'left' && n.hand === 'left'));
 
-                if (!isTargetForUser) {
-                  scheduledIds.add(n.id);
-                  const songDelta = Math.max(0, n.time - currentT);
-                  const audioStart = nowAudioTime + (songDelta / currentTempo);
-                  pianoEngine.scheduleNote(n.midi, n.velocity, audioStart, n.duration / currentTempo);
-                }
+              if (!isTargetForUser) {
+                scheduledIds.add(n.id);
+                const songDelta = Math.max(0, n.time - currentT);
+                const audioStart = nowAudioTime + (songDelta / currentTempo);
+                pianoEngine.scheduleNote(n.midi, n.velocity, audioStart, n.duration / currentTempo);
               }
-            } else if (n.time > currentT + LOOKAHEAD_SEC) {
-              // Notalar zaman sırasına göre dizili olduğu için ilerisini taramaya gerek yok
-              break;
             }
           }
 
-          // 2. Ekrandaki Tuş Işıklandırması (Visual Voice Tracking)
+          // 2. Ekrandaki Tuş Işıklandırması (Visual Cursor Optimization)
+          while (
+            visualCursorRef.current < currentSong.notes.length &&
+            currentSong.notes[visualCursorRef.current].time + currentSong.notes[visualCursorRef.current].duration < currentT - 0.05
+          ) {
+            visualCursorRef.current++;
+          }
+
           const activeVoices = new Map<number, ActiveNote>();
-          for (let i = 0; i < currentSong.notes.length; i++) {
+          for (let i = visualCursorRef.current; i < currentSong.notes.length; i++) {
             const n = currentSong.notes[i];
+            if (n.time > currentT) break;
             if (n.time <= currentT && n.time + n.duration >= currentT) {
               activeVoices.set(n.midi, {
                 midi: n.midi,
@@ -263,8 +278,6 @@ export const App: React.FC = () => {
                 source: 'playback',
                 hand: n.hand,
               });
-            } else if (n.time > currentT + 0.1) {
-              break;
             }
           }
 
@@ -319,6 +332,8 @@ export const App: React.FC = () => {
   const handleRewind = useCallback(() => {
     setCurrentTime(0);
     currentTimeRef.current = 0;
+    audioCursorRef.current = 0;
+    visualCursorRef.current = 0;
     scheduledNoteIdsRef.current.clear();
     pianoEngine.stopAllNotes();
     practiceEngineRef.current.resetStats();
@@ -327,9 +342,18 @@ export const App: React.FC = () => {
   const handleSeek = useCallback((time: number) => {
     setCurrentTime(time);
     currentTimeRef.current = time;
+    let idx = 0;
+    for (let i = 0; i < currentSong.notes.length; i++) {
+      if (currentSong.notes[i].time >= time - 0.1) {
+        idx = i;
+        break;
+      }
+    }
+    audioCursorRef.current = idx;
+    visualCursorRef.current = idx;
     scheduledNoteIdsRef.current.clear();
     pianoEngine.stopAllNotes();
-  }, []);
+  }, [currentSong]);
 
   const handleVolumeChange = useCallback((newVol: number) => {
     setVolume(newVol);
@@ -374,6 +398,8 @@ export const App: React.FC = () => {
   const handleSelectSong = (song: LoadedSong) => {
     pianoEngine.stopAllNotes();
     scheduledNoteIdsRef.current.clear();
+    audioCursorRef.current = 0;
+    visualCursorRef.current = 0;
     setCurrentSong(song);
     handleRewind();
   };

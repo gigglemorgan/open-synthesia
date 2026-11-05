@@ -210,7 +210,112 @@ function generateMoonlightSonata(): VisualNote[] {
   return notes;
 }
 
+/**
+ * Rush E (Sheet Music Boss - Extreme Black MIDI Benchmark)
+ * Yoğun nota yağmuru ve ultra hızlı tekrarlar
+ */
+function generateRushE(): VisualNote[] {
+  const notes: VisualNote[] = [];
+  let id = 5000;
+  let t = 0.5;
+
+  // 1. İkonik 'E' Tekrarları Başlangıcı (Increasing Speed)
+  // Yavaş başlayıp çılgın hızlara çıkan E4 (64) ve E5 (76)
+  const ePitches = [64, 76];
+  let dt = 0.35;
+
+  for (let phase = 0; phase < 4; phase++) {
+    for (let k = 0; k < 6; k++) {
+      notes.push(createNote(id++, ePitches[k % 2], t, dt * 0.8, 'right', 0.85));
+      t += dt;
+    }
+    dt = dt * 0.65; // Hızlanma
+  }
+
+  // 2. Çılgın Hızda 'E' Fırtınası (16th and 32nd note stream)
+  for (let k = 0; k < 28; k++) {
+    notes.push(createNote(id++, 64, t, 0.05, 'right', 0.9));
+    notes.push(createNote(id++, 76, t, 0.05, 'right', 0.9));
+    // Sol el vuruşları
+    if (k % 4 === 0) {
+      notes.push(createNote(id++, 33, t, 0.12, 'left', 0.9));
+      notes.push(createNote(id++, 45, t, 0.12, 'left', 0.9));
+    }
+    t += 0.06;
+  }
+
+  // 3. Ana Rush E Teması (Furious A Minor Melody with Octave Jumps)
+  const themeR = [
+    76, 77, 76, 74, 72, 71, 69, 68, 69, 71, 72, 74, 76, 77, 79, 81,
+    81, 79, 77, 76, 74, 72, 71, 69, 68, 69, 71, 69, 68, 69, 76, 88
+  ];
+
+  for (let r = 0; r < 2; r++) {
+    for (let i = 0; i < themeR.length; i++) {
+      const p = themeR[i];
+      notes.push(createNote(id++, p, t, 0.08, 'right', 0.95));
+      // Alt oktav katmanı
+      notes.push(createNote(id++, p - 12, t, 0.08, 'right', 0.85));
+
+      // Sol el A minor yürüyüşü (Staccato bass chords)
+      if (i % 2 === 0) {
+        notes.push(createNote(id++, 33, t, 0.1, 'left', 0.8));
+        notes.push(createNote(id++, 45, t, 0.1, 'left', 0.8));
+        notes.push(createNote(id++, 57, t, 0.1, 'left', 0.8));
+      } else {
+        notes.push(createNote(id++, 40, t, 0.1, 'left', 0.8));
+        notes.push(createNote(id++, 52, t, 0.1, 'left', 0.8));
+        notes.push(createNote(id++, 64, t, 0.1, 'left', 0.8));
+      }
+
+      t += 0.09;
+    }
+  }
+
+  // 4. Black MIDI Arpej Dalgası (32nd Note Mega Waterfall)
+  const arpScale = [45, 48, 52, 57, 60, 64, 69, 72, 76, 81, 84, 88, 93, 96, 100];
+  for (let wave = 0; wave < 3; wave++) {
+    // Yukarı çıkış
+    for (let i = 0; i < arpScale.length; i++) {
+      notes.push(createNote(id++, arpScale[i], t, 0.06, i % 2 === 0 ? 'left' : 'right', 0.9));
+      t += 0.045;
+    }
+    // Aşağı iniş
+    for (let i = arpScale.length - 2; i >= 0; i--) {
+      notes.push(createNote(id++, arpScale[i], t, 0.06, i % 2 === 0 ? 'left' : 'right', 0.9));
+      t += 0.045;
+    }
+  }
+
+  // 5. Büyük Final: Çift El E Akor Patlaması (Wall of E notes)
+  for (let f = 0; f < 16; f++) {
+    // E1, E2, E3, E4, E5, E6, E7 aynı anda vurulur!
+    [28, 40, 52, 64, 76, 88, 100].forEach((ep) => {
+      notes.push(createNote(id++, ep, t, 0.15, ep < 60 ? 'left' : 'right', 0.95));
+    });
+    t += 0.12;
+  }
+
+  // Son vuruş
+  [21, 33, 45, 57, 69, 81, 93].forEach((ap) => {
+    notes.push(createNote(id++, ap, t, 1.2, ap < 60 ? 'left' : 'right', 1.0));
+  });
+
+  return notes;
+}
+
 export const SAMPLE_SONGS: LoadedSong[] = [
+  {
+    metadata: {
+      title: 'Rush E (Extreme Benchmark)',
+      artist: 'Sheet Music Boss',
+      bpm: 160,
+      duration: 18,
+      totalNotes: 0,
+      tracksCount: 2,
+    },
+    notes: generateRushE(),
+  },
   {
     metadata: {
       title: 'Für Elise (Bagatelle No. 25)',
