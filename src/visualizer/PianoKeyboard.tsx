@@ -1,11 +1,10 @@
 /**
  * PianoKeyboard.tsx
- * Canvas-Based 88-Key Piano with Realistic Hammer Action Mechanics
+ * Ultra-Fast Canvas 88-Key Piano with Weighted Hammer Action Dip
  *
- * - Hammer Action Physics: Weighted key dip depth (~3.5px mechanical travel)
- * - Keybed Impact & Felt Impulse Flash on note strike
- * - Zero DOM elements for keys (ultra high FPS)
- * - Single <canvas> with O(1) hit testing and zero garbage collection
+ * - Reads directly from activeNotesRef: ZERO React re-render overhead during playback
+ * - Weighted Key Dip: Realistic 3mm pivot travel when hammer strikes
+ * - Single Canvas: O(1) hit testing, zero DOM reflows
  */
 
 import React, { useRef, useEffect, useCallback } from 'react';
@@ -14,7 +13,7 @@ import { PIANO_KEYS_88, TOTAL_WHITE_KEYS, getKeyBounds } from './pianoLayout';
 import { midiManager } from '../midi/MidiManager';
 
 interface PianoKeyboardProps {
-  activeNotes: Map<number, ActiveNote>;
+  activeNotesRef: React.MutableRefObject<Map<number, ActiveNote>>;
   waitingNotes?: VisualNote[];
   onNotePress?: (midi: number) => void;
   onNoteRelease?: (midi: number) => void;
@@ -24,22 +23,21 @@ interface PianoKeyboardProps {
   hammerActionEnabled?: boolean;
 }
 
-// Studio Acoustic Palette
 const COL_WHITE = '#f1f2f5';
-const COL_WHITE_LIP = '#e2e4e9';
-const COL_BLACK = '#14161d';
-const COL_BORDER = '#b8bac2';
-const COL_BLACK_BORDER = '#090a0f';
+const COL_WHITE_LIP = '#e1e3e8';
+const COL_BLACK = '#13151b';
+const COL_BORDER = '#b0b2ba';
+const COL_BLACK_BORDER = '#08090d';
 const COL_USER = '#6366f1';
 const COL_LEFT = '#38bdf8';
 const COL_RIGHT = '#34d399';
 const COL_WAITING = '#f59e0b';
 const COL_FELT = '#a81c1c';
 const COL_SUSTAIN = '#f59e0b';
-const COL_BG = '#08090d';
+const COL_BG = '#060709';
 
 export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
-  activeNotes,
+  activeNotesRef,
   waitingNotes = [],
   onNotePress,
   onNoteRelease,
@@ -51,13 +49,11 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pressedMidiRef = useRef<number | null>(null);
 
-  const activeNotesRef = useRef(activeNotes);
   const waitingNotesRef = useRef(waitingNotes);
   const showKeyBindingsRef = useRef(showKeyBindings);
   const sustainRef = useRef(sustainPedalActive);
   const hammerRef = useRef(hammerActionEnabled);
 
-  activeNotesRef.current = activeNotes;
   waitingNotesRef.current = waitingNotes;
   showKeyBindingsRef.current = showKeyBindings;
   sustainRef.current = sustainPedalActive;
@@ -116,7 +112,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     }
   }, [onNoteRelease]);
 
-  // === CANVAS RENDER LOOP ===
+  // === CANVAS RENDER LOOP (Created ONCE, zero GC) ===
   useEffect(() => {
     let animId: number;
     const canvas = canvasRef.current;
@@ -147,17 +143,17 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
       ctx.fillStyle = COL_BG;
       ctx.fillRect(0, 0, w, h);
 
-      // Crimson Felt Strip (Signature Grand Piano Damper Rail)
+      // Red Felt Strip
       ctx.fillStyle = COL_FELT;
-      ctx.fillRect(0, 0, w, 3.5);
+      ctx.fillRect(0, 0, w, 3);
 
-      // Sustain Pedal Lamp
+      // Sustain Pedal Bar
       if (_sustain) {
         ctx.fillStyle = COL_SUSTAIN;
-        ctx.fillRect(0, 3.5, w, 2);
+        ctx.fillRect(0, 3, w, 2);
       }
 
-      const yOff = _sustain ? 5.5 : 3.5;
+      const yOff = _sustain ? 5 : 3;
       const keyH = h - yOff;
       const blackH = keyH * 0.62;
 
@@ -180,13 +176,11 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         const currentY = yOff + dip;
         const currentH = keyH - dip;
 
-        // Shadow under the felt strip when key is depressed
         if (dip > 0) {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
           ctx.fillRect(kx + 0.5, yOff, kw - 1, dip);
         }
 
-        // Key fill
         if (isWait) {
           ctx.fillStyle = COL_WAITING;
         } else if (active) {
@@ -196,7 +190,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
           ctx.fillStyle = COL_WHITE;
         }
 
-        const r = 3;
+        const r = 2.5;
         ctx.beginPath();
         ctx.moveTo(kx + 0.5, currentY);
         ctx.lineTo(kx + kw - 0.5, currentY);
@@ -207,16 +201,9 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         ctx.closePath();
         ctx.fill();
 
-        // Bottom ivory lip accent
         if (!active && !isWait) {
           ctx.fillStyle = COL_WHITE_LIP;
-          ctx.fillRect(kx + 1, currentY + currentH - 5, kw - 2, 4);
-        }
-
-        // Hammer Action Strike Felt Flash
-        if (active && _hammer) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-          ctx.fillRect(kx + 1, currentY, kw - 2, 2);
+          ctx.fillRect(kx + 1, currentY + currentH - 4, kw - 2, 3);
         }
 
         ctx.strokeStyle = COL_BORDER;
@@ -228,12 +215,12 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
           const letter = midiManager.getKeyForMidi(k.midi);
           if (letter) {
             const cx = kx + kw / 2;
-            const cy = currentY + currentH - 22;
+            const cy = currentY + currentH - 20;
             ctx.fillStyle = 'rgba(210, 212, 220, 0.85)';
             ctx.beginPath();
-            ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = '#222';
+            ctx.fillStyle = '#111';
             ctx.font = 'bold 8px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -241,13 +228,12 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
           }
         }
 
-        // Note Labels (C1, C2, C3...)
         if (showLabels && k.noteName.startsWith('C')) {
           ctx.fillStyle = active || isWait ? 'rgba(255,255,255,0.9)' : 'rgba(110,115,130,0.7)';
           ctx.font = 'bold 8px monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(k.noteName, kx + kw / 2, currentY + currentH - 8);
+          ctx.fillText(k.noteName, kx + kw / 2, currentY + currentH - 7);
         }
       }
 
@@ -263,7 +249,6 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         const active = _active.get(k.midi);
         const isWait = waitingSet.has(k.midi);
 
-        // Hammer Action dip on black key (2.5px)
         const dip = active && _hammer ? 2.5 : 0;
         const currentY = yOff + dip;
         const currentH = blackH - dip;
@@ -293,7 +278,6 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         ctx.closePath();
         ctx.fill();
 
-        // Subtle 3D top bevel
         if (!active && !isWait) {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
           ctx.fillRect(kx + 1, currentY + 1, kw - 2, 2);
@@ -303,15 +287,14 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         ctx.lineWidth = 0.5;
         ctx.stroke();
 
-        // Key binding badge
         if (_showBindings) {
           const letter = midiManager.getKeyForMidi(k.midi);
           if (letter) {
             const cx = kx + kw / 2;
             const cy = currentY + currentH - 10;
-            ctx.fillStyle = 'rgba(35,38,48,0.95)';
+            ctx.fillStyle = 'rgba(30,32,42,0.95)';
             ctx.beginPath();
-            ctx.roundRect(cx - 5.5, cy - 5.5, 11, 11, 2);
+            ctx.roundRect(cx - 5, cy - 5, 10, 10, 2);
             ctx.fill();
             ctx.fillStyle = '#f59e0b';
             ctx.font = 'bold 7px monospace';
@@ -331,7 +314,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   }, [showLabels]);
 
   return (
-    <div className="relative w-full h-32 select-none bg-[#08090d]">
+    <div className="relative w-full h-28 select-none bg-[#060709]">
       <canvas
         ref={canvasRef}
         className="w-full h-full block cursor-pointer"

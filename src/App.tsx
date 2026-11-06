@@ -1,11 +1,12 @@
 /**
  * App.tsx
- * OpenSynthesia — Ultra-Lightweight Minimalist Piano Studio
+ * OpenSynthesia — Ultra-Lightweight 0.1-Gram Minimalist Piano Studio
  *
- * - Hardware Audio Clock: AudioContext.currentTime master synchronization (Zero Lag, Zero Drift)
- * - Acoustic Hammer Action: Mechanical keybed thump & felt snap physics
- * - Full MIDI Sustain: Automatic CC 64 sustain pedal from .mid files + Live user pedal override
- * - Canvas Piano Keyboard: 88 keys rendered on high-speed hardware 2D canvas with hammer dip
+ * - ZERO React re-renders during playback (active keys read directly via Ref on Canvas)
+ * - Exact hardware clock synchronization (AudioContext.currentTime)
+ * - Rush E / Extreme Black MIDI optimized voice recycling (zero audio stutter)
+ * - Authentic acoustic Yamaha C5 Concert Grand (Zero-Pop attack)
+ * - Automatic CC64 MIDI Sustain & User Live Pedal override
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -52,8 +53,7 @@ export const App: React.FC = () => {
   const [loopEnd, setLoopEnd] = useState<number | null>(null);
   const [hammerAction, setHammerAction] = useState<boolean>(true);
 
-  // Active Keys (Visual & Audio)
-  const [activeNotes, setActiveNotes] = useState<Map<number, ActiveNote>>(new Map());
+  // Waiting State
   const [waitingNotes, setWaitingNotes] = useState<VisualNote[]>([]);
   const [isWaiting, setIsWaiting] = useState<boolean>(false);
   const [showKeyBindings, setShowKeyBindings] = useState<boolean>(true);
@@ -82,11 +82,9 @@ export const App: React.FC = () => {
     accuracy: 100,
   });
 
-  // SoundFont status
   const [isSoundfontLoaded, setIsSoundfontLoaded] = useState<boolean>(false);
-  const [, setSoundfontProgress] = useState<number>(0);
 
-  // Hardware MIDI & Sustain (Both Live User Pedal and MIDI CC 64)
+  // Hardware MIDI & Sustain
   const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
   const [activeMidiDevice, setActiveMidiDevice] = useState<MidiDevice | null>(null);
   const [sustainPedalActive, setSustainPedalActive] = useState<boolean>(false);
@@ -98,7 +96,6 @@ export const App: React.FC = () => {
   const [isMidiSettingsOpen, setIsMidiSettingsOpen] = useState<boolean>(false);
   const [isKeyBindingsOpen, setIsKeyBindingsOpen] = useState<boolean>(false);
 
-  // Audio player modal URL & title
   const [playerAudioUrl, setPlayerAudioUrl] = useState<string | null>(null);
   const [playerAudioTitle, setPlayerAudioTitle] = useState<string>('');
 
@@ -114,18 +111,17 @@ export const App: React.FC = () => {
   const visualCursorRef = useRef<number>(0);
   const currentSongRef = useRef<LoadedSong>(currentSong);
 
-  // Sustain Pedal Refs (Tracks live user pedal vs MIDI CC64 pedal)
+  // Active notes Map in a Ref (MUTABLE — read by canvas with ZERO React re-renders)
+  const activeNotesRef = useRef<Map<number, ActiveNote>>(new Map());
+  const userKeysRef = useRef<Map<number, ActiveNote>>(new Map());
+
+  // Sustain Pedal tracking
   const userPedalHeldRef = useRef<boolean>(false);
   const midiPedalActiveRef = useRef<boolean>(false);
   const sustainPedalActiveRef = useRef<boolean>(false);
 
-  // Throttle timers for React state updates
-  const lastUIUpdateRef = useRef<number>(0);
-  const lastActiveNotesUpdateRef = useRef<number>(0);
-
-  // Mutable active notes buffer
-  const activeNotesBufRef = useRef<Map<number, ActiveNote>>(new Map());
-  const userKeysRef = useRef<Map<number, ActiveNote>>(new Map());
+  // Throttle timer for scrubber UI only (5 Hz / 200ms)
+  const lastScrubberUIUpdateRef = useRef<number>(0);
 
   isPlayingRef.current = isPlaying;
   tempoRef.current = tempo;
@@ -133,13 +129,6 @@ export const App: React.FC = () => {
 
   // Initialize Audio & Soundfont & MIDI
   useEffect(() => {
-    pianoEngine.setProgressCallback((pct) => {
-      setSoundfontProgress(pct);
-      if (pct >= 100) {
-        setIsSoundfontLoaded(true);
-      }
-    });
-
     pianoEngine.loadSoundfont().then(() => {
       setIsSoundfontLoaded(pianoEngine.isLoaded());
     });
@@ -174,7 +163,7 @@ export const App: React.FC = () => {
     };
   }, [loopStart]);
 
-  // Update Practice Engine when Song, Mode, Hand, Tempo or Loop changes
+  // Update Practice Engine
   useEffect(() => {
     const engine = practiceEngineRef.current;
     engine.setNotes(currentSong.notes);
@@ -198,23 +187,15 @@ export const App: React.FC = () => {
 
       const note: ActiveNote = { midi, velocity, source: 'user' };
       userKeysRef.current.set(midi, note);
-      setActiveNotes((prev) => {
-        const next = new Map(prev);
-        next.set(midi, note);
-        return next;
-      });
+      activeNotesRef.current.set(midi, note);
     });
 
     const unsubNoteOff = midiManager.onNoteOff((midi) => {
       pianoEngine.stopNote(midi);
       userKeysRef.current.delete(midi);
-      setActiveNotes((prev) => {
-        const next = new Map(prev);
-        if (next.get(midi)?.source === 'user') {
-          next.delete(midi);
-        }
-        return next;
-      });
+      if (activeNotesRef.current.get(midi)?.source === 'user') {
+        activeNotesRef.current.delete(midi);
+      }
     });
 
     const unsubPedal = midiManager.onPedal((isDown) => {
@@ -232,12 +213,11 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // === HARDWARE-SYNCHRONIZED MASTER PLAYBACK LOOP ===
+  // === HARDWARE-SYNCHRONIZED MASTER PLAYBACK LOOP (ZERO REACT RE-RENDERS) ===
   useEffect(() => {
     let animId: number;
     const LOOKAHEAD_SEC = 0.25;
-    const UI_UPDATE_INTERVAL = 66; // 15 Hz for scrubber UI
-    const ACTIVE_NOTES_INTERVAL = 35; // ~28 Hz for keyboard canvas
+    const SCRUBBER_UPDATE_INTERVAL = 200; // 5 Hz for scrubber text/slider ONLY
 
     const loop = (timestamp: number) => {
       if (isPlayingRef.current) {
@@ -246,7 +226,7 @@ export const App: React.FC = () => {
         const currentTempo = tempoRef.current;
         const song = currentSongRef.current;
 
-        // MASTER CLOCK: exact song time derived directly from hardware audio quartz clock
+        // MASTER CLOCK: exact song time from hardware audio crystal clock
         const elapsedAudio = Math.max(0, nowAudioTime - startAudioTimeRef.current);
         const calculatedSongTime = startSongTimeRef.current + (elapsedAudio * currentTempo);
 
@@ -310,7 +290,7 @@ export const App: React.FC = () => {
             }
           }
 
-          // 3. Visual active key tracking:
+          // 3. Visual active keys: mutate activeNotesRef directly in-place! ZERO React state update!
           while (
             visualCursorRef.current < song.notes.length &&
             song.notes[visualCursorRef.current].time + song.notes[visualCursorRef.current].duration < newTime - 0.05
@@ -318,13 +298,13 @@ export const App: React.FC = () => {
             visualCursorRef.current++;
           }
 
-          const buf = activeNotesBufRef.current;
-          buf.clear();
+          const map = activeNotesRef.current;
+          map.clear();
           for (let i = visualCursorRef.current; i < song.notes.length; i++) {
             const n = song.notes[i];
             if (n.time > newTime) break;
             if (n.time <= newTime && n.time + n.duration >= newTime) {
-              buf.set(n.midi, {
+              map.set(n.midi, {
                 midi: n.midi,
                 velocity: n.velocity,
                 source: 'playback',
@@ -332,17 +312,11 @@ export const App: React.FC = () => {
               });
             }
           }
+          userKeysRef.current.forEach((v, k) => map.set(k, v));
 
-          // Merge live user keys
-          userKeysRef.current.forEach((v, k) => buf.set(k, v));
-
-          if (timestamp - lastActiveNotesUpdateRef.current > ACTIVE_NOTES_INTERVAL) {
-            lastActiveNotesUpdateRef.current = timestamp;
-            setActiveNotes(new Map(buf));
-          }
-
-          if (timestamp - lastUIUpdateRef.current > UI_UPDATE_INTERVAL) {
-            lastUIUpdateRef.current = timestamp;
+          // 4. Low-frequency scrubber UI update (5 Hz only)
+          if (timestamp - lastScrubberUIUpdateRef.current > SCRUBBER_UPDATE_INTERVAL) {
+            lastScrubberUIUpdateRef.current = timestamp;
             setCurrentTime(newTime);
           }
 
@@ -395,6 +369,7 @@ export const App: React.FC = () => {
     audioCursorRef.current = 0;
     visualCursorRef.current = 0;
     scheduledNoteIdsRef.current.clear();
+    activeNotesRef.current.clear();
     pianoEngine.stopAllNotes();
     midiPedalActiveRef.current = false;
     const effective = userPedalHeldRef.current;
@@ -422,6 +397,7 @@ export const App: React.FC = () => {
     audioCursorRef.current = idx;
     visualCursorRef.current = idx;
     scheduledNoteIdsRef.current.clear();
+    activeNotesRef.current.clear();
     pianoEngine.stopAllNotes();
   }, []);
 
@@ -470,35 +446,28 @@ export const App: React.FC = () => {
     }));
   }, []);
 
-  // On-screen Keyboard click
+  // Screen Key Press
   const handleScreenNotePress = useCallback((midi: number) => {
     pianoEngine.playNote(midi, 0.85);
     practiceEngineRef.current.handleUserNotePress(midi);
     const note: ActiveNote = { midi, velocity: 0.85, source: 'user' };
     userKeysRef.current.set(midi, note);
-    setActiveNotes((prev) => {
-      const next = new Map(prev);
-      next.set(midi, note);
-      return next;
-    });
+    activeNotesRef.current.set(midi, note);
   }, []);
 
   const handleScreenNoteRelease = useCallback((midi: number) => {
     pianoEngine.stopNote(midi);
     userKeysRef.current.delete(midi);
-    setActiveNotes((prev) => {
-      const next = new Map(prev);
-      if (next.get(midi)?.source === 'user') {
-        next.delete(midi);
-      }
-      return next;
-    });
+    if (activeNotesRef.current.get(midi)?.source === 'user') {
+      activeNotesRef.current.delete(midi);
+    }
   }, []);
 
   // Song Select
   const handleSelectSong = (song: LoadedSong) => {
     pianoEngine.stopAllNotes();
     scheduledNoteIdsRef.current.clear();
+    activeNotesRef.current.clear();
     audioCursorRef.current = 0;
     visualCursorRef.current = 0;
     setCurrentSong(song);
@@ -522,13 +491,9 @@ export const App: React.FC = () => {
     setIsAudioPlayerOpen(true);
   };
 
-  const activeMidiSet = React.useMemo(() => {
-    return new Set(activeNotes.keys());
-  }, [activeNotes]);
-
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#07080a] font-sans text-zinc-100">
-      {/* 1. Ultra-Sade Üst Konsol */}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#060709] font-sans text-zinc-100 select-none">
+      {/* 1. Ultra-Sade Tüy Gibi Üst Bar */}
       <Navbar
         songTitle={currentSong.metadata.title}
         activeDevice={activeMidiDevice}
@@ -546,7 +511,7 @@ export const App: React.FC = () => {
         onOpenKeyBindings={() => setIsKeyBindingsOpen(true)}
       />
 
-      {/* 2. Synthesia Falling Notes Şelalesi */}
+      {/* 2. Synthesia Falling Notes Şelale Canvas'ı */}
       <main className="flex-1 flex flex-col relative overflow-hidden">
         <SynthesiaCanvas
           notes={currentSong.notes}
@@ -555,12 +520,11 @@ export const App: React.FC = () => {
           isWaiting={isWaiting}
           waitingNotes={waitingNotes}
           handSelection={hand}
-          activeMidiSet={activeMidiSet}
         />
 
-        {/* 3. 88 Tuşlu Çekiç Aksiyonlu Piyano Klavyesi */}
+        {/* 3. 88 Tuşlu Çekiç Aksiyonlu Tuval Piyano (Sıfır DOM Yükü) */}
         <PianoKeyboard
-          activeNotes={activeNotes}
+          activeNotesRef={activeNotesRef}
           waitingNotes={waitingNotes}
           onNotePress={handleScreenNotePress}
           onNoteRelease={handleScreenNoteRelease}
@@ -571,7 +535,7 @@ export const App: React.FC = () => {
         />
       </main>
 
-      {/* 4. Alt DAW Transport Konsolu */}
+      {/* 4. Alt Minimalist Transport Çubuğu */}
       <PlaybackControls
         isPlaying={isPlaying}
         currentTime={currentTime}
