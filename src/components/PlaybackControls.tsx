@@ -1,5 +1,5 @@
 /**
- * PlaybackControls.tsx — Minimal transport bar. Memoized.
+ * PlaybackControls.tsx — Featherweight DAW Transport Bar
  */
 
 import React, { useState } from 'react';
@@ -56,67 +56,113 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = React.memo(({
   const beat = (Math.floor(currentTime * (bpm / 60)) % 4) + 1;
 
   const pill = (active: boolean, color: string) =>
-    active ? `${color} text-white font-medium` : 'text-zinc-500 hover:text-zinc-300';
+    active ? `${color} text-white font-medium shadow-xs` : 'text-zinc-500 hover:text-zinc-300';
 
   return (
-    <div className="bg-[#07080b] border-t border-[#14161f] px-3 py-1.5 select-none flex flex-col gap-1 text-zinc-300">
-      {/* Timeline */}
-      <div className="flex items-center gap-2 w-full">
+    <div className="bg-[#07080a] border-t border-[#14161f] px-3 py-1.5 select-none flex flex-col gap-1.5 text-zinc-300">
+      {/* Precision Timeline Scrubber */}
+      <div className="flex items-center gap-2.5 w-full">
         <span className="text-[10px] font-mono text-zinc-500 w-10 text-right">{fmt(currentTime)}</span>
         <input
-          type="range" min={0} max={Math.max(1, duration)} step={0.05} value={currentTime}
+          type="range"
+          min={0}
+          max={Math.max(1, duration)}
+          step={0.05}
+          value={currentTime}
           onChange={(e) => onSeek(parseFloat(e.target.value))}
-          className="w-full h-1 bg-[#151722] rounded-full appearance-none cursor-pointer accent-indigo-500"
+          className="w-full h-1 bg-[#141622] rounded-full appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
         />
         <span className="text-[10px] font-mono text-zinc-500 w-10">{fmt(duration)}</span>
       </div>
 
-      {/* Controls */}
+      {/* Main Transport Bar */}
       <div className="flex items-center justify-between gap-2">
-        {/* Left: transport */}
-        <div className="flex items-center gap-1">
-          <button onClick={onRewind} className="p-1 rounded text-zinc-400 hover:text-white text-sm" title={t.rewind}>⟲</button>
+        {/* Sol: Play / Pause & Rewind & BPM */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onRewind}
+            className="p-1 px-1.5 rounded text-zinc-400 hover:text-white hover:bg-white/5 text-xs transition-colors"
+            title={t.rewind}
+          >
+            ⟲
+          </button>
+
           <button
             onClick={onPlayPause}
-            className={`w-7 h-7 rounded-md flex items-center justify-center text-sm font-bold ${isPlaying ? 'bg-amber-500 text-zinc-950' : 'bg-indigo-600 text-white'}`}
+            className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold transition-all ${
+              isPlaying ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400' : 'bg-indigo-600 text-white hover:bg-indigo-500'
+            }`}
           >
             {isPlaying ? '⏸' : '▶'}
           </button>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#0d0e14] border border-[#171924] font-mono text-[10px] text-zinc-400">
+
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#0d0e14] border border-white/5 font-mono text-[10px] text-zinc-400">
             <span>{measure}.{beat}</span>
             <span className="text-zinc-600">•</span>
-            <span className="text-emerald-400 font-bold">{Math.round(bpm * tempo)}</span>
-            <button onClick={onAutoDetectBpm} className="text-[9px] text-indigo-400 hover:text-indigo-300 font-bold">{t.autoBpm}</button>
+            <span className="text-emerald-400 font-bold">{Math.round(bpm * tempo)} BPM</span>
+            <button
+              onClick={onAutoDetectBpm}
+              className="text-[9px] text-indigo-400 hover:text-indigo-300 font-bold ml-1"
+              title="Detect BPM"
+            >
+              {t.autoBpm}
+            </button>
           </div>
         </div>
 
-        {/* Center: modes */}
+        {/* Orta: Modlar & El Seçimi */}
         <div className="flex items-center gap-1 text-xs">
-          <div className="flex rounded bg-[#0d0e14] p-0.5 border border-[#171924]">
-            <button onClick={() => onModeChange('play')} className={`px-2 py-0.5 rounded text-[11px] ${pill(mode === 'play', 'bg-zinc-800')}`}>{t.listen}</button>
-            <button onClick={() => onModeChange('practice-wait')} className={`px-2 py-0.5 rounded text-[11px] ${pill(mode === 'practice-wait', 'bg-amber-500 !text-zinc-950')}`}>{t.practiceWait}</button>
-            <button onClick={() => onModeChange('practice-rhythm')} className={`px-2 py-0.5 rounded text-[11px] ${pill(mode === 'practice-rhythm', 'bg-indigo-600')}`}>{t.practiceRhythm}</button>
+          <div className="flex rounded bg-[#0d0e14] p-0.5 border border-white/5">
+            <button onClick={() => onModeChange('play')} className={`px-2 py-0.5 rounded text-[11px] ${pill(mode === 'play', 'bg-zinc-800')}`}>
+              {t.listen}
+            </button>
+            <button onClick={() => onModeChange('practice-wait')} className={`px-2 py-0.5 rounded text-[11px] ${pill(mode === 'practice-wait', 'bg-amber-500 !text-zinc-950')}`}>
+              {t.practiceWait}
+            </button>
+            <button onClick={() => onModeChange('practice-rhythm')} className={`px-2 py-0.5 rounded text-[11px] ${pill(mode === 'practice-rhythm', 'bg-indigo-600')}`}>
+              {t.practiceRhythm}
+            </button>
           </div>
-          <div className="hidden sm:flex rounded bg-[#0d0e14] p-0.5 border border-[#171924]">
-            <button onClick={() => onHandChange('left')} className={`px-1.5 py-0.5 rounded text-[10px] ${pill(hand === 'left', 'bg-sky-600')}`}>{t.handLeft}</button>
-            <button onClick={() => onHandChange('both')} className={`px-1.5 py-0.5 rounded text-[10px] ${pill(hand === 'both', 'bg-zinc-800')}`}>{t.handBoth}</button>
-            <button onClick={() => onHandChange('right')} className={`px-1.5 py-0.5 rounded text-[10px] ${pill(hand === 'right', 'bg-emerald-600')}`}>{t.handRight}</button>
+
+          <div className="hidden sm:flex rounded bg-[#0d0e14] p-0.5 border border-white/5">
+            <button onClick={() => onHandChange('left')} className={`px-1.5 py-0.5 rounded text-[10px] ${pill(hand === 'left', 'bg-sky-600')}`}>
+              {t.handLeft}
+            </button>
+            <button onClick={() => onHandChange('both')} className={`px-1.5 py-0.5 rounded text-[10px] ${pill(hand === 'both', 'bg-zinc-800')}`}>
+              {t.handBoth}
+            </button>
+            <button onClick={() => onHandChange('right')} className={`px-1.5 py-0.5 rounded text-[10px] ${pill(hand === 'right', 'bg-emerald-600')}`}>
+              {t.handRight}
+            </button>
           </div>
         </div>
 
-        {/* Right: volume & speed */}
+        {/* Sağ: Ses & Tempo */}
         <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1 bg-[#0d0e14] px-1.5 py-0.5 rounded border border-[#171924]">
-            <button onClick={toggleMute} className="text-zinc-400 hover:text-white text-xs">{volume === 0 ? '🔇' : '🔊'}</button>
-            <input type="range" min={0} max={1} step={0.05} value={volume}
+          <div className="flex items-center gap-1 bg-[#0d0e14] px-1.5 py-0.5 rounded border border-white/5">
+            <button onClick={toggleMute} className="text-zinc-400 hover:text-white text-xs">
+              {volume === 0 ? '🔇' : '🔊'}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={volume}
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              className="w-14 h-1 bg-[#1a1c28] rounded-full appearance-none cursor-pointer accent-indigo-400"
+              className="w-14 h-1 bg-[#181a26] rounded-full appearance-none cursor-pointer accent-indigo-400"
             />
           </div>
-          <select value={tempo} onChange={(e) => onTempoChange(parseFloat(e.target.value))}
-            className="bg-[#0d0e14] border border-[#171924] rounded px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 outline-none cursor-pointer">
+
+          <select
+            value={tempo}
+            onChange={(e) => onTempoChange(parseFloat(e.target.value))}
+            className="bg-[#0d0e14] border border-white/5 rounded px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 outline-none cursor-pointer"
+          >
             {[0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(v => (
-              <option key={v} value={v} className="bg-[#10121a]">{v}x</option>
+              <option key={v} value={v} className="bg-[#101218]">
+                {v}x
+              </option>
             ))}
           </select>
         </div>

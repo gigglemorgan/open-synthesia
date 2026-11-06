@@ -20,9 +20,15 @@ export interface SongMetadata {
   timeSignature?: [number, number];
 }
 
+export interface SustainEvent {
+  time: number;
+  isDown: boolean;
+}
+
 export interface LoadedSong {
   metadata: SongMetadata;
   notes: VisualNote[];
+  sustainEvents?: SustainEvent[];
   rawMidiData?: Uint8Array;
 }
 
