@@ -35,6 +35,7 @@ import { AudioPlayerModal } from './components/AudioPlayerModal';
 import { SongSelectorModal } from './components/SongSelectorModal';
 import { MidiSettingsModal } from './components/MidiSettingsModal';
 import { KeyBindingsModal } from './components/KeyBindingsModal';
+import { ToolsModal } from './components/ToolsModal';
 import { Language } from './i18n/translations';
 
 export const App: React.FC = () => {
@@ -52,6 +53,7 @@ export const App: React.FC = () => {
   const [loopStart, setLoopStart] = useState<number | null>(null);
   const [loopEnd, setLoopEnd] = useState<number | null>(null);
   const [hammerAction, setHammerAction] = useState<boolean>(true);
+  const [isToolsOpen, setIsToolsOpen] = useState<boolean>(false);
 
   // Waiting State
   const [waitingNotes, setWaitingNotes] = useState<VisualNote[]>([]);
@@ -496,19 +498,11 @@ export const App: React.FC = () => {
       {/* 1. Ultra-Sade Tüy Gibi Üst Bar */}
       <Navbar
         songTitle={currentSong.metadata.title}
-        activeDevice={activeMidiDevice}
         sustainPedalActive={sustainPedalActive}
-        hammerActionEnabled={hammerAction}
-        practiceStats={practiceStats}
-        isSoundfontLoaded={isSoundfontLoaded}
         lang={lang}
-        onToggleHammerAction={handleToggleHammerAction}
         onToggleLang={handleToggleLang}
         onOpenSongSelector={() => setIsSongSelectorOpen(true)}
-        onOpenConverter={() => setIsConverterOpen(true)}
-        onOpenAudioPlayer={() => setIsAudioPlayerOpen(true)}
-        onOpenMidiSettings={() => setIsMidiSettingsOpen(true)}
-        onOpenKeyBindings={() => setIsKeyBindingsOpen(true)}
+        onOpenTools={() => setIsToolsOpen(true)}
       />
 
       {/* 2. Synthesia Falling Notes Şelale Canvas'ı */}
@@ -602,6 +596,21 @@ export const App: React.FC = () => {
         showKeyBindings={showKeyBindings}
         onToggleShowKeyBindings={setShowKeyBindings}
         lang={lang}
+      />
+
+      <ToolsModal
+        isOpen={isToolsOpen}
+        onClose={() => setIsToolsOpen(false)}
+        lang={lang}
+        hammerActionEnabled={hammerAction}
+        showKeyBindings={showKeyBindings}
+        activeDeviceName={activeMidiDevice ? activeMidiDevice.name : null}
+        onToggleHammerAction={handleToggleHammerAction}
+        onToggleKeyBindings={() => setShowKeyBindings(prev => !prev)}
+        onOpenMidiSettings={() => setIsMidiSettingsOpen(true)}
+        onOpenKeyBindings={() => setIsKeyBindingsOpen(true)}
+        onOpenConverter={() => setIsConverterOpen(true)}
+        onOpenAudioPlayer={() => setIsAudioPlayerOpen(true)}
       />
     </div>
   );

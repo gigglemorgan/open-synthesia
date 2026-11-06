@@ -157,7 +157,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
       const keyH = h - yOff;
       const blackH = keyH * 0.62;
 
-      const waitingSet = new Set(_waiting.map(n => n.midi));
+      const waitingSet = _waiting.length > 0 ? new Set(_waiting.map(n => n.midi)) : null;
 
       // --- WHITE KEYS ---
       for (let i = 0; i < PIANO_KEYS_88.length; i++) {
@@ -169,7 +169,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         const kw = b.width * w;
 
         const active = _active.get(k.midi);
-        const isWait = waitingSet.has(k.midi);
+        const isWait = waitingSet ? waitingSet.has(k.midi) : false;
 
         // Hammer Action key dip travel (3px depression)
         const dip = active && _hammer ? 3.0 : 0;
@@ -247,7 +247,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         const kw = b.width * w;
 
         const active = _active.get(k.midi);
-        const isWait = waitingSet.has(k.midi);
+        const isWait = waitingSet ? waitingSet.has(k.midi) : false;
 
         const dip = active && _hammer ? 2.5 : 0;
         const currentY = yOff + dip;
