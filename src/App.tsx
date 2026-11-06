@@ -2,14 +2,15 @@
  * App.tsx
  * OpenSynthesia — Main Studio & Playback Coordinator
  *
- * Performance-critical design:
- * - currentTime is driven by a REF in the rAF loop; React state is updated at 15 Hz (for scrubber UI only)
- * - activeNotes visual state is throttled to 20 Hz (50ms) to prevent React re-render storms
- * - Audio scheduling uses hardware-clock lookahead, completely independent of UI thread
+ * Hardware Audio Clock Architecture (Zero-Drift, Zero-Stutter, Zero-Slowdown):
+ * - AudioContext.currentTime is the MASTER hardware clock.
+ * - Song time is derived directly: startSongTime + (ctx.currentTime - startAudioTime) * tempo
+ * - Notes are scheduled in absolute hardware audio time, immune to UI/frame drops.
+ * - Canvas reads currentTimeRef at native display refresh rate.
+ * - React UI re-renders (scrubber, timer) are throttled to 15 Hz.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import confetti from 'canvas-confetti';
 import { 
   LoadedSong, 
   VisualNote, 
@@ -102,12 +103,13 @@ export const App: React.FC = () => {
   const [playerAudioUrl, setPlayerAudioUrl] = useState<string | null>(null);
   const [playerAudioTitle, setPlayerAudioTitle] = useState<string>('');
 
-  // === REFS for animation loop (these drive the hot path, NOT React state) ===
+  // === REFS: Master Hardware Clock & Engine State ===
   const practiceEngineRef = useRef<PracticeEngine>(new PracticeEngine(currentSong.notes));
   const isPlayingRef = useRef<boolean>(isPlaying);
-  const currentTimeRef = useRef<number>(currentTime);
+  const currentTimeRef = useRef<number>(0);
+  const startAudioTimeRef = useRef<number>(0);
+  const startSongTimeRef = useRef<number>(0);
   const scheduledNoteIdsRef = useRef<Set<string>>(new Set());
-  const lastFrameTimeRef = useRef<number>(0);
   const tempoRef = useRef<number>(tempo);
   const audioCursorRef = useRef<number>(0);
   const visualCursorRef = useRef<number>(0);
@@ -117,14 +119,12 @@ export const App: React.FC = () => {
   const lastUIUpdateRef = useRef<number>(0);
   const lastActiveNotesUpdateRef = useRef<number>(0);
 
-  // Mutable active notes buffer (written every frame, flushed to React at 20 Hz)
+  // Mutable active notes buffer
   const activeNotesBufRef = useRef<Map<number, ActiveNote>>(new Map());
-  // User-pressed keys (never throttled — always merged in)
   const userKeysRef = useRef<Map<number, ActiveNote>>(new Map());
 
-  // Keep refs in sync
+  // Keep refs in sync (CRITICAL: NEVER overwrite currentTimeRef with stale React state)
   isPlayingRef.current = isPlaying;
-  currentTimeRef.current = currentTime;
   tempoRef.current = tempo;
   currentSongRef.current = currentSong;
 
@@ -162,12 +162,14 @@ export const App: React.FC = () => {
       visualCursorRef.current = 0;
       scheduledNoteIdsRef.current.clear();
       pianoEngine.stopAllNotes();
+      startAudioTimeRef.current = pianoEngine.getCurrentTime();
+      startSongTimeRef.current = loopStart || 0;
     });
 
     return () => {
       unsubDev();
     };
-  }, []);
+  }, [loopStart]);
 
   // Update Practice Engine when Song, Mode, Hand, Tempo or Loop changes
   useEffect(() => {
@@ -193,7 +195,6 @@ export const App: React.FC = () => {
 
       const note: ActiveNote = { midi, velocity, source: 'user' };
       userKeysRef.current.set(midi, note);
-      // Immediate visual feedback for user keys (no throttle)
       setActiveNotes((prev) => {
         const next = new Map(prev);
         next.set(midi, note);
@@ -225,54 +226,52 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Streak Confetti
-  useEffect(() => {
-    if (practiceStats.currentStreak > 0 && practiceStats.currentStreak % 25 === 0) {
-      confetti({
-        particleCount: 40,
-        spread: 50,
-        origin: { y: 0.8 },
-      });
-    }
-  }, [practiceStats.currentStreak]);
 
-  // === MAIN PLAYBACK + AUDIO SCHEDULING + ANIMATION LOOP ===
+  // === HARDWARE-SYNCHRONIZED MASTER PLAYBACK LOOP ===
   useEffect(() => {
     let animId: number;
-    const LOOKAHEAD_SEC = 0.20; // 200ms hardware pre-schedule window
-    const UI_UPDATE_INTERVAL = 66; // ~15 Hz for scrubber/timeline React state
-    const ACTIVE_NOTES_INTERVAL = 50; // ~20 Hz for keyboard highlight React state
+    const LOOKAHEAD_SEC = 0.25; // 250ms lookahead
+    const UI_UPDATE_INTERVAL = 66; // ~15 Hz
+    const ACTIVE_NOTES_INTERVAL = 40; // ~25 Hz
 
     const loop = (timestamp: number) => {
-      if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
-      const dt = Math.min(0.08, (timestamp - lastFrameTimeRef.current) / 1000);
-      lastFrameTimeRef.current = timestamp;
-
       if (isPlayingRef.current) {
         const engine = practiceEngineRef.current;
-        const result = engine.update(currentTimeRef.current, dt);
+        const nowAudioTime = pianoEngine.getCurrentTime();
+        const currentTempo = tempoRef.current;
+        const song = currentSongRef.current;
 
-        if (result.shouldAdvance) {
-          const newTime = result.nextTime;
+        // MASTER CLOCK: derive song time directly from AudioContext hardware clock!
+        const elapsedAudio = Math.max(0, nowAudioTime - startAudioTimeRef.current);
+        const calculatedSongTime = startSongTimeRef.current + (elapsedAudio * currentTempo);
+
+        const result = engine.update(calculatedSongTime, 0);
+
+        if (!result.shouldAdvance) {
+          // Waiting for user key in practice mode: keep anchor aligned with nowAudioTime
+          startAudioTimeRef.current = nowAudioTime;
+          startSongTimeRef.current = currentTimeRef.current;
+        } else {
+          const newTime = calculatedSongTime;
           currentTimeRef.current = newTime;
 
-          const song = currentSongRef.current;
-          const currentTempo = tempoRef.current;
           const engineConfig = engine.getConfig();
           const scheduledIds = scheduledNoteIdsRef.current;
-          const nowAudioTime = pianoEngine.getCurrentTime();
+          const maxAudioScheduleTime = nowAudioTime + LOOKAHEAD_SEC;
 
-          // 1. Lookahead Audio Scheduling (hardware clock, O(1) cursor)
+          // 1. Hardware Lookahead Audio Scheduling (Exact hardware audio timestamps)
           while (
             audioCursorRef.current < song.notes.length &&
-            song.notes[audioCursorRef.current].time < newTime - 0.05
+            song.notes[audioCursorRef.current].time < newTime - 0.1
           ) {
             audioCursorRef.current++;
           }
 
           for (let i = audioCursorRef.current; i < song.notes.length; i++) {
             const n = song.notes[i];
-            if (n.time > newTime + LOOKAHEAD_SEC) break;
+            const noteAudioTime = startAudioTimeRef.current + ((n.time - startSongTimeRef.current) / currentTempo);
+
+            if (noteAudioTime > maxAudioScheduleTime) break;
 
             if (!scheduledIds.has(n.id)) {
               const isTargetForUser = 
@@ -283,14 +282,12 @@ export const App: React.FC = () => {
 
               if (!isTargetForUser) {
                 scheduledIds.add(n.id);
-                const songDelta = Math.max(0, n.time - newTime);
-                const audioStart = nowAudioTime + (songDelta / currentTempo);
-                pianoEngine.scheduleNote(n.midi, n.velocity, audioStart, n.duration / currentTempo);
+                pianoEngine.scheduleNote(n.midi, n.velocity, noteAudioTime, n.duration / currentTempo);
               }
             }
           }
 
-          // 2. Visual key highlights — build in buffer, flush at 20 Hz
+          // 2. Visual key highlights — build in buffer, flush at 25 Hz
           while (
             visualCursorRef.current < song.notes.length &&
             song.notes[visualCursorRef.current].time + song.notes[visualCursorRef.current].duration < newTime - 0.05
@@ -313,27 +310,25 @@ export const App: React.FC = () => {
             }
           }
 
-          // Merge user keys into buffer
+          // Merge user keys
           userKeysRef.current.forEach((v, k) => buf.set(k, v));
 
-          // Throttled flush to React state (prevents re-render storm)
           if (timestamp - lastActiveNotesUpdateRef.current > ACTIVE_NOTES_INTERVAL) {
             lastActiveNotesUpdateRef.current = timestamp;
             setActiveNotes(new Map(buf));
           }
 
-          // Throttled currentTime React state update (for scrubber/PlaybackControls only)
+          // Throttled UI scrub timeline update
           if (timestamp - lastUIUpdateRef.current > UI_UPDATE_INTERVAL) {
             lastUIUpdateRef.current = timestamp;
             setCurrentTime(newTime);
           }
 
-          // Song end
+          // Song End
           if (newTime >= song.metadata.duration) {
             setIsPlaying(false);
             setCurrentTime(newTime);
             pianoEngine.stopAllNotes();
-            confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
           }
         }
       }
@@ -342,11 +337,7 @@ export const App: React.FC = () => {
     };
 
     animId = requestAnimationFrame(loop);
-
-    return () => {
-      cancelAnimationFrame(animId);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelAnimationFrame(animId); };
   }, []);
 
   // Playback Control Handlers
@@ -366,7 +357,9 @@ export const App: React.FC = () => {
         visualCursorRef.current = 0;
         practiceEngineRef.current.resetStats();
       }
-      lastFrameTimeRef.current = 0;
+      const nowAudio = pianoEngine.getCurrentTime();
+      startAudioTimeRef.current = nowAudio;
+      startSongTimeRef.current = currentTimeRef.current;
       setIsPlaying(true);
     }
   }, [isPlaying]);
@@ -374,6 +367,9 @@ export const App: React.FC = () => {
   const handleRewind = useCallback(() => {
     currentTimeRef.current = 0;
     setCurrentTime(0);
+    const nowAudio = pianoEngine.getCurrentTime();
+    startAudioTimeRef.current = nowAudio;
+    startSongTimeRef.current = 0;
     audioCursorRef.current = 0;
     visualCursorRef.current = 0;
     scheduledNoteIdsRef.current.clear();
@@ -384,6 +380,9 @@ export const App: React.FC = () => {
   const handleSeek = useCallback((time: number) => {
     currentTimeRef.current = time;
     setCurrentTime(time);
+    const nowAudio = pianoEngine.getCurrentTime();
+    startAudioTimeRef.current = nowAudio;
+    startSongTimeRef.current = time;
 
     const song = currentSongRef.current;
     let idx = 0;
@@ -397,6 +396,25 @@ export const App: React.FC = () => {
     visualCursorRef.current = idx;
     scheduledNoteIdsRef.current.clear();
     pianoEngine.stopAllNotes();
+  }, []);
+
+  const handleTempoChange = useCallback((newTempo: number) => {
+    const nowAudio = pianoEngine.getCurrentTime();
+    startAudioTimeRef.current = nowAudio;
+    startSongTimeRef.current = currentTimeRef.current;
+    setTempo(newTempo);
+    tempoRef.current = newTempo;
+    scheduledNoteIdsRef.current.clear();
+    pianoEngine.stopAllNotes();
+
+    let idx = 0;
+    for (let i = 0; i < currentSongRef.current.notes.length; i++) {
+      if (currentSongRef.current.notes[i].time >= currentTimeRef.current - 0.1) {
+        idx = i;
+        break;
+      }
+    }
+    audioCursorRef.current = idx;
   }, []);
 
   const handleVolumeChange = useCallback((newVol: number) => {
@@ -449,8 +467,12 @@ export const App: React.FC = () => {
     audioCursorRef.current = 0;
     visualCursorRef.current = 0;
     setCurrentSong(song);
+    currentSongRef.current = song;
     currentTimeRef.current = 0;
     setCurrentTime(0);
+    const nowAudio = pianoEngine.getCurrentTime();
+    startAudioTimeRef.current = nowAudio;
+    startSongTimeRef.current = 0;
     practiceEngineRef.current.resetStats();
   };
 
@@ -486,7 +508,7 @@ export const App: React.FC = () => {
       <main className="flex-1 flex flex-col relative overflow-hidden">
         <SynthesiaCanvas
           notes={currentSong.notes}
-          currentTime={currentTimeRef.current}
+          currentTimeRef={currentTimeRef}
           noteSpeed={noteSpeed}
           isWaiting={isWaiting}
           waitingNotes={waitingNotes}
@@ -526,10 +548,10 @@ export const App: React.FC = () => {
         onSeek={handleSeek}
         onModeChange={setMode}
         onHandChange={setHand}
-        onTempoChange={setTempo}
+        onTempoChange={handleTempoChange}
         onNoteSpeedChange={setNoteSpeed}
-        onSetLoopA={() => setLoopStart(currentTime)}
-        onSetLoopB={() => setLoopEnd(currentTime)}
+        onSetLoopA={() => setLoopStart(currentTimeRef.current)}
+        onSetLoopB={() => setLoopEnd(currentTimeRef.current)}
         onClearLoop={() => { setLoopStart(null); setLoopEnd(null); }}
         onAutoDetectBpm={handleAutoDetectBpm}
       />

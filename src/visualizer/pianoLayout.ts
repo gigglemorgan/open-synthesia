@@ -1,7 +1,9 @@
 /**
  * pianoLayout.ts
- * 88 Tuşlu Piyano Geometrisi ve Koordinat Hesaplayıcı
+ * 88-Key Piano Geometry & Coordinate Calculator
  * A0 (MIDI 21) - C8 (MIDI 108)
+ *
+ * Pre-computed lookup tables for O(1) access — zero allocation at render time.
  */
 
 export interface KeyLayout {
@@ -11,78 +13,67 @@ export interface KeyLayout {
   noteName: string;
 }
 
-// Check if a midi note is a black key (sharp/flat)
+const BLACK_NOTES = new Set([1, 3, 6, 8, 10]);
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
 export function isBlackKey(midi: number): boolean {
-  const noteInOctave = midi % 12;
-  // C# (1), D# (3), F# (6), G# (8), A# (10)
-  return [1, 3, 6, 8, 10].includes(noteInOctave);
+  return BLACK_NOTES.has(midi % 12);
 }
 
-// Generate the 88 keys layout
-export function generatePianoKeys(): KeyLayout[] {
+export const TOTAL_WHITE_KEYS = 52;
+
+// Pre-compute all 88 keys once
+function buildKeys(): KeyLayout[] {
   const keys: KeyLayout[] = [];
   let whiteCount = 0;
-
-  const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
   for (let midi = 21; midi <= 108; midi++) {
-    const isBlack = isBlackKey(midi);
-    const noteName = `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
-
+    const black = isBlackKey(midi);
     keys.push({
       midi,
-      isBlack,
-      whiteIndex: isBlack ? -1 : whiteCount,
-      noteName,
+      isBlack: black,
+      whiteIndex: black ? -1 : whiteCount,
+      noteName: `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`,
     });
-
-    if (!isBlack) {
-      whiteCount++;
-    }
+    if (!black) whiteCount++;
   }
-
   return keys;
 }
 
-export const PIANO_KEYS_88 = generatePianoKeys();
-export const TOTAL_WHITE_KEYS = 52;
+export const PIANO_KEYS_88 = buildKeys();
 
-/**
- * Calculates normalized X position (0 to 1) and width (0 to 1) for any MIDI note (21 to 108)
- */
-export function getKeyBounds(midi: number): { x: number; width: number; isBlack: boolean } {
-  if (midi < 21 || midi > 108) {
-    return { x: 0, width: 0, isBlack: false };
+// Pre-compute bounds for all 88 keys into a flat lookup array (O(1) by midi)
+export interface KeyBounds {
+  x: number;      // normalized 0..1
+  width: number;   // normalized 0..1
+  isBlack: boolean;
+}
+
+const boundsLookup: KeyBounds[] = new Array(128);
+
+(function precomputeBounds() {
+  const ww = 1 / TOTAL_WHITE_KEYS;
+  const bw = ww * 0.65;
+
+  // Build white index lookup
+  const whiteIdx = new Int8Array(128).fill(-1);
+  let wi = 0;
+  for (let m = 21; m <= 108; m++) {
+    if (!isBlackKey(m)) { whiteIdx[m] = wi; wi++; }
   }
 
-  const whiteKeyWidth = 1 / TOTAL_WHITE_KEYS;
-  const blackKeyWidth = whiteKeyWidth * 0.65;
-
-  const key = PIANO_KEYS_88.find(k => k.midi === midi);
-  if (!key) return { x: 0, width: 0, isBlack: false };
-
-  if (!key.isBlack) {
-    return {
-      x: key.whiteIndex * whiteKeyWidth,
-      width: whiteKeyWidth,
-      isBlack: false,
-    };
-  } else {
-    // Find preceding white key
-    let prevWhiteIndex = 0;
-    for (let m = midi - 1; m >= 21; m--) {
-      const prev = PIANO_KEYS_88.find(k => k.midi === m);
-      if (prev && !prev.isBlack) {
-        prevWhiteIndex = prev.whiteIndex;
-        break;
+  for (let m = 21; m <= 108; m++) {
+    if (!isBlackKey(m)) {
+      boundsLookup[m] = { x: whiteIdx[m] * ww, width: ww, isBlack: false };
+    } else {
+      let prev = 0;
+      for (let p = m - 1; p >= 21; p--) {
+        if (whiteIdx[p] >= 0) { prev = whiteIdx[p]; break; }
       }
+      boundsLookup[m] = { x: (prev + 0.68) * ww, width: bw, isBlack: true };
     }
-    // Center black key between white keys
-    const x = (prevWhiteIndex + 0.68) * whiteKeyWidth;
-    return {
-      x,
-      width: blackKeyWidth,
-      isBlack: true,
-    };
   }
+})();
+
+export function getKeyBounds(midi: number): KeyBounds {
+  return boundsLookup[midi] || { x: 0, width: 0, isBlack: false };
 }

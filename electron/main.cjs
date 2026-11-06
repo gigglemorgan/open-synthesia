@@ -12,9 +12,6 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('audio-buffer-size', '512');
 app.commandLine.appendSwitch('enable-exclusive-audio');
 app.commandLine.appendSwitch('enable-high-resolution-time');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
 
 let mainWindow = null;
 
@@ -62,16 +59,9 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
-
-  if (isDev && process.env.ELECTRON_START_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_START_URL);
-  } else if (isDev && !app.isPackaged) {
-    mainWindow.loadURL(devServerUrl).catch(() => {
-      // If dev server isn't running, fallback to dist
-      mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-    });
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devServerUrl) {
+    mainWindow.loadURL(devServerUrl);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
